@@ -1,6 +1,7 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName } from './types';
 import { GeminiProvider } from './providers/geminiProvider';
+import { GroqProvider } from './providers/groqProvider';
 
 export class ProviderManager {
   private readonly providers = new Map<AIProviderName, AIProvider>();
@@ -22,3 +23,4 @@ export class ProviderManager {
 
 export const providerManager = new ProviderManager();
 providerManager.registerProvider(new GeminiProvider());
+providerManager.registerProvider(new GroqProvider());
