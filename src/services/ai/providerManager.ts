@@ -2,6 +2,7 @@ import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName, TaskType } from './types';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
+import { OpenRouterProvider } from './providers/openrouterProvider';
 
 export class ProviderManager {
   private readonly providers = new Map<AIProviderName, AIProvider>();
@@ -17,12 +18,12 @@ export class ProviderManager {
   private getProviderOrder(taskType: TaskType): AIProviderName[] {
     switch (taskType) {
       case TaskType.CODING:
-        return [AIProviderName.GROQ, AIProviderName.GEMINI];
+        return [AIProviderName.GROQ, AIProviderName.GEMINI, AIProviderName.OPENROUTER];
       case TaskType.SEARCH:
       case TaskType.VISION:
-        return [AIProviderName.GEMINI, AIProviderName.GROQ];
+        return [AIProviderName.GEMINI, AIProviderName.GROQ, AIProviderName.OPENROUTER];
       default:
-        return [AIProviderName.GEMINI, AIProviderName.GROQ];
+        return [AIProviderName.GEMINI, AIProviderName.GROQ, AIProviderName.OPENROUTER];
     }
   }
 
@@ -60,3 +61,4 @@ export class ProviderManager {
 export const providerManager = new ProviderManager();
 providerManager.registerProvider(new GeminiProvider());
 providerManager.registerProvider(new GroqProvider());
+providerManager.registerProvider(new OpenRouterProvider());
