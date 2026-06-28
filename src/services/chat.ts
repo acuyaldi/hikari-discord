@@ -1,5 +1,5 @@
 import db from '../database/sqlite';
-import { getBestEngine } from '../ai/router';
+import { classifyTask } from '../ai/router';
 import { baseSystemInstruction } from '../prompt/basePrompt';
 import { buildMemoryContext } from './memory/memoryContext';
 import { providerManager } from './ai/providerManager';
@@ -61,11 +61,12 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
   let replyText = '';
   let engineIndicator = '';
 
-  let engine = userRow?.engine_pref ?? 'gemini';
-  if (engine === 'gemini' || engine === 'auto') {
-    engine = await getBestEngine(promptText);
-    console.log(`🤖 Hikari memilih otak: ${engine.toUpperCase()} untuk pertanyaan ini.`);
-  }
+  const enginePref = userRow?.engine_pref ?? 'gemini';
+  const taskType =
+    enginePref === 'gemini' || enginePref === 'auto'
+      ? classifyTask(promptText)
+      : TaskType.GENERAL;
+  console.log(`🤖 Hikari mengklasifikasi tugas: ${taskType.toUpperCase()}`);
 
   const chatRequest: ChatRequest = {
     userId,
@@ -77,7 +78,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     dynamicSystemInstruction,
     hasImage,
     imageUrl,
-    taskType: TaskType.GENERAL, // placeholder — replaced in Task 5
+    taskType,
   };
 
   const response = await providerManager.generate(chatRequest);

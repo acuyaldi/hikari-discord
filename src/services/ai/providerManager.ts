@@ -1,5 +1,5 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
-import { AIProviderName } from './types';
+import { AIProviderName, TaskType } from './types';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
 
@@ -14,8 +14,20 @@ export class ProviderManager {
     return this.providers.get(name);
   }
 
+  private getProviderOrder(taskType: TaskType): AIProviderName[] {
+    switch (taskType) {
+      case TaskType.CODING:
+        return [AIProviderName.GROQ, AIProviderName.GEMINI];
+      case TaskType.SEARCH:
+      case TaskType.VISION:
+        return [AIProviderName.GEMINI, AIProviderName.GROQ];
+      default:
+        return [AIProviderName.GEMINI, AIProviderName.GROQ];
+    }
+  }
+
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    const order: AIProviderName[] = [AIProviderName.GEMINI, AIProviderName.GROQ];
+    const order = this.getProviderOrder(request.taskType);
     let lastError: unknown;
 
     for (const name of order) {
