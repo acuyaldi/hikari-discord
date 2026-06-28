@@ -1,8 +1,20 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
-import { AIProviderName, TaskType } from './types';
+import { AIProviderName } from './types';
+import { AI_PROVIDER_ORDER } from '../../config/env';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
 import { OpenRouterProvider } from './providers/openrouterProvider';
+
+const VALID_NAMES = new Set<string>(Object.values(AIProviderName));
+
+function parseProviderOrder(raw: string): AIProviderName[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => VALID_NAMES.has(s)) as AIProviderName[];
+}
+
+const CONFIGURED_ORDER = parseProviderOrder(AI_PROVIDER_ORDER);
 
 export class ProviderManager {
   private readonly providers = new Map<AIProviderName, AIProvider>();
@@ -15,20 +27,8 @@ export class ProviderManager {
     return this.providers.get(name);
   }
 
-  private getProviderOrder(taskType: TaskType): AIProviderName[] {
-    switch (taskType) {
-      case TaskType.CODING:
-        return [AIProviderName.GROQ, AIProviderName.GEMINI, AIProviderName.OPENROUTER];
-      case TaskType.SEARCH:
-      case TaskType.VISION:
-        return [AIProviderName.GEMINI, AIProviderName.GROQ, AIProviderName.OPENROUTER];
-      default:
-        return [AIProviderName.GEMINI, AIProviderName.GROQ, AIProviderName.OPENROUTER];
-    }
-  }
-
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    const order = this.getProviderOrder(request.taskType);
+    const order = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
     let lastError: unknown;
 
     for (const name of order) {
@@ -41,7 +41,6 @@ export class ProviderManager {
         console.error(`${name} Error, trying next provider:`, err);
         lastError = err;
 
-        // If the request has an image and no remaining provider supports vision, abort gracefully.
         const remaining = order.slice(order.indexOf(name) + 1);
         const hasNextVision = remaining.some((n) => this.providers.get(n)?.supportsVision);
         if (request.hasImage && !hasNextVision) {
