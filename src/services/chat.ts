@@ -1,12 +1,13 @@
 import db from '../database/sqlite';
-import ai from '../ai/gemini';
 import groq from '../ai/groq';
 import openai from '../ai/openai';
 import { getBestEngine } from '../ai/router';
 import { baseSystemInstruction } from '../prompt/basePrompt';
-import { getGeminiChat, getGroqHistory } from './chatMemory';
-import { downloadDiscordImage } from '../utils/downloadImage';
+import { getGroqHistory } from './chatMemory';
 import { buildMemoryContext } from './memory/memoryContext';
+import { providerManager } from './ai/providerManager';
+import { TaskType } from './ai/types';
+import type { ChatRequest } from './ai/types';
 import type { UserRow } from '../types';
 
 export interface ChatOptions {
@@ -69,60 +70,22 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     console.log(`🤖 Hikari memilih otak: ${engine.toUpperCase()} untuk pertanyaan ini.`);
   }
 
-  const lowPrompt = promptText.toLowerCase();
-  const butuhInternet =
-    !hasImage &&
-    (lowPrompt.includes('hari ini') ||
-      lowPrompt.includes('sekarang') ||
-      lowPrompt.includes('berita') ||
-      lowPrompt.includes('terbaru'));
+  const chatRequest: ChatRequest = {
+    userId,
+    guildId,
+    channelId,
+    promptText,
+    identityPrefix: injectIdentity,
+    finalPrompt,
+    dynamicSystemInstruction,
+    hasImage,
+    imageUrl,
+    taskType: TaskType.GENERAL, // placeholder — replaced in Task 5
+  };
 
   try {
-    if (butuhInternet) {
-      const searchResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: promptText,
-        config: { tools: [{ googleSearch: {} }] },
-      });
-      finalPrompt =
-        injectIdentity +
-        `[INFO INTERNET TERBARU: ${searchResponse.text}]\n\nBerdasarkan info di atas, jawab dengan kreatif: ${promptText}`;
-    }
-
-    const messageContent =
-      hasImage && imageUrl
-        ? [finalPrompt, { inlineData: await downloadDiscordImage(imageUrl) }]
-        : finalPrompt;
-
-    const response = await getGeminiChat(channelId, dynamicSystemInstruction).sendMessage({
-      message: messageContent,
-    });
-    replyText = response.text;
-
-    const groqHistory = getGroqHistory(channelId, dynamicSystemInstruction);
-    groqHistory.push({ role: 'user', content: promptText });
-    groqHistory.push({ role: 'assistant', content: replyText });
-
-    if (groqHistory.length > 25) {
-      console.log('🧠 Sirkuit Konteks Penuh, Mengompres Riwayat Obrolan...');
-      const coreTexts = groqHistory
-        .slice(1, 15)
-        .map((h) => `${h.role}: ${h.content}`)
-        .join('\n');
-      const summaryResponse = await groq.chat.completions.create({
-        messages: [
-          {
-            role: 'user',
-            content: `Rangkum poin-poin penting, sejarah emosi, dan inti dari obrolan ini menjadi 3 kalimat padat:\n\n${coreTexts}`,
-          },
-        ],
-        model: 'llama-3.1-8b-instant',
-      });
-      groqHistory.splice(1, 14, {
-        role: 'system',
-        content: `[RANGKUMAN SEJARAH OBROLAN SEBELUMNYA: ${summaryResponse.choices[0].message.content}]`,
-      });
-    }
+    const response = await providerManager.generate(chatRequest);
+    replyText = response.replyText;
   } catch (geminiChatError) {
     console.error('Gemini Error, fallback ke Groq:', geminiChatError);
     engineIndicator = '\n\n*(⚡ Hikari saat ini menggunakan otak cadangan: Groq Llama-3.1)*';

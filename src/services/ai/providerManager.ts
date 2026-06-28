@@ -1,20 +1,24 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName } from './types';
+import { GeminiProvider } from './providers/geminiProvider';
 
 export class ProviderManager {
   private readonly providers = new Map<AIProviderName, AIProvider>();
 
-  registerProvider(_provider: AIProvider): void {
-    throw new Error('Not implemented');
+  registerProvider(provider: AIProvider): void {
+    this.providers.set(provider.name, provider);
   }
 
-  getProvider(_name: AIProviderName): AIProvider | undefined {
-    throw new Error('Not implemented');
+  getProvider(name: AIProviderName): AIProvider | undefined {
+    return this.providers.get(name);
   }
 
-  async generate(_request: ChatRequest): Promise<ChatResponse> {
-    throw new Error('Not implemented');
+  async generate(request: ChatRequest): Promise<ChatResponse> {
+    const gemini = this.providers.get(AIProviderName.GEMINI);
+    if (!gemini) throw new Error('Gemini provider not registered');
+    return gemini.generate(request);
   }
 }
 
 export const providerManager = new ProviderManager();
+providerManager.registerProvider(new GeminiProvider());
