@@ -1,4 +1,5 @@
-import type { MemoryCandidate, MemoryRow } from '../types';
+import { MEMORY_CONFIG } from '../memoryConfig';
+import type { MemoryCandidate, MemoryRow, ScoreBreakdown } from '../types';
 
 const ONE_DAY_MS = 86_400_000;
 
@@ -15,12 +16,16 @@ export interface ScoringContext {
 /**
  * Awards points per keyword found in the memory text.
  * Each hit adds 20 points, capped at 100.
+ * Returns both the score and the list of keywords that matched.
  */
-function computeKeywordScore(row: MemoryRow, keywords: string[]): number {
-  if (keywords.length === 0) return 0;
+function computeKeywordScore(
+  row: MemoryRow,
+  keywords: string[],
+): { score: number; matched: string[] } {
+  if (keywords.length === 0) return { score: 0, matched: [] };
   const lower = row.memory.toLowerCase();
-  const hits = keywords.filter((kw) => lower.includes(kw)).length;
-  return Math.min(100, hits * 20);
+  const matched = keywords.filter((kw) => lower.includes(kw));
+  return { score: Math.min(100, matched.length * 20), matched };
 }
 
 /**
@@ -54,23 +59,35 @@ function computeRecencyScore(row: MemoryRow, now: number): number {
 /**
  * Converts a plain MemoryRow into a scored MemoryCandidate.
  *
- * Composite score weights:
- *   keyword    × 0.40  — relevance to the current prompt
- *   importance × 0.30  — author-assigned priority
- *   usage      × 0.20  — recency of retrieval
- *   recency    × 0.10  — recency of creation/update
+ * The composite score formula uses weights from MEMORY_CONFIG:
+ *   keyword    × keywordWeight    (default 4)
+ *   importance × importanceWeight (default 2)
+ *   usage      × confidenceWeight (default 1)
+ *   recency    × recencyWeight    (default 0.5)
+ *
+ * The confidence sub-score (row.confidence) is included in scoreBreakdown
+ * for debugging visibility but does not contribute to the final score.
+ * Tune weights in memoryConfig.ts without touching this function.
  */
 export function scoreMemory(row: MemoryRow, ctx: ScoringContext): MemoryCandidate {
-  const keywordScore    = computeKeywordScore(row, ctx.keywords);
+  const { score: keywordScore, matched: matchedKeywords } = computeKeywordScore(row, ctx.keywords);
   const importanceScore = computeImportanceScore(row);
   const usageScore      = computeUsageScore(row, ctx.now);
   const recencyScore    = computeRecencyScore(row, ctx.now);
 
   const score =
-    keywordScore    * 0.40 +
-    importanceScore * 0.30 +
-    usageScore      * 0.20 +
-    recencyScore    * 0.10;
+    keywordScore    * MEMORY_CONFIG.keywordWeight +
+    importanceScore * MEMORY_CONFIG.importanceWeight +
+    usageScore      * MEMORY_CONFIG.confidenceWeight +
+    recencyScore    * MEMORY_CONFIG.recencyWeight;
 
-  return { ...row, score, keywordScore, importanceScore, usageScore, recencyScore };
+  const scoreBreakdown: ScoreBreakdown = {
+    keyword:    keywordScore,
+    importance: importanceScore,
+    usage:      usageScore,
+    confidence: row.confidence,
+    recency:    recencyScore,
+  };
+
+  return { ...row, score, scoreBreakdown, matchedKeywords };
 }

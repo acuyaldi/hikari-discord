@@ -1,3 +1,6 @@
+import { getRelevantCandidates } from '../memoryService';
+import { MEMORY_CONFIG } from '../memoryConfig';
+import { scoreMemory } from './scoreMemory';
 import type { MemoryCandidate, RetrievalStrategy } from '../types';
 
 /**
@@ -18,20 +21,30 @@ export function extractKeywords(prompt: string): string[] {
 /**
  * Keyword-based retrieval strategy.
  *
- * Scores each memory candidate by keyword overlap, importance, usage, and
- * recency, then returns the top `limit` results.
+ * Fetches a candidate pool from the DB, scores each row via scoreMemory(),
+ * sorts by score descending, and returns the top `limit` results.
  *
- * Full implementation is wired in memoryRetriever.ts (Task 3).
- * This object satisfies the RetrievalStrategy contract so the retriever can
- * reference it by interface — swapping to a semantic strategy later requires
- * only changing which strategy is passed in.
+ * Swapping to a semantic or hybrid strategy only requires providing a new
+ * object that satisfies the RetrievalStrategy interface — the public API
+ * (retrieveMemories) remains unchanged.
  */
 export const keywordStrategy: RetrievalStrategy = {
   name: 'keyword',
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  retrieve(_userId: string, _prompt: string, _limit: number): Promise<MemoryCandidate[]> {
-    // Implemented in Task 3 — memoryRetriever.ts calls this strategy.
-    return Promise.resolve([]);
+  retrieve(userId: string, prompt: string, limit: number): Promise<MemoryCandidate[]> {
+    const candidatesResult = getRelevantCandidates(userId, MEMORY_CONFIG.candidatePoolSize);
+    if (!candidatesResult.success || candidatesResult.data.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    const keywords = extractKeywords(prompt);
+    const now = Date.now();
+
+    const scored = candidatesResult.data
+      .map((row) => scoreMemory(row, { keywords, now }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return Promise.resolve(scored);
   },
 };

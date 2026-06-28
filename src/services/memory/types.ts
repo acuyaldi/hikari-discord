@@ -39,20 +39,45 @@ export interface MemoryRow {
 }
 
 /**
+ * Individual sub-scores that compose the final retrieval score.
+ * All values are on a 0–100 scale before weighting, making them
+ * comparable in debug output regardless of their config weight.
+ */
+export interface ScoreBreakdown {
+  /** Points from keyword overlap with the user's prompt (0–100). */
+  keyword: number;
+  /** Memory importance as stored (0–100). */
+  importance: number;
+  /** Usage recency — decays by 5 pts/day since last injection (0–100). */
+  usage: number;
+  /** Detector's confidence that the fact is accurate (0–100). */
+  confidence: number;
+  /** Creation/update recency — decays by 2 pts/day (0–100). */
+  recency: number;
+}
+
+/**
  * A `MemoryRow` enriched with scoring data computed by the retriever.
  * Keeps retrieval scores separate from the persisted row — never stored in the DB.
  */
 export interface MemoryCandidate extends MemoryRow {
-  /** Weighted composite of the four sub-scores below. */
+  /** Weighted composite of all sub-scores. */
   score: number;
-  /** Points earned from keyword overlap with the user's prompt (0–100). */
-  keywordScore: number;
-  /** Derived from the memory's importance field (0–100). */
-  importanceScore: number;
-  /** Based on how recently the memory was injected into a prompt (0–100). */
-  usageScore: number;
-  /** Based on how recently the memory was created or updated (0–100). */
-  recencyScore: number;
+  /** Per-factor breakdown for debugging and future retrieval improvements. */
+  scoreBreakdown: ScoreBreakdown;
+  /** Keywords from the prompt that matched this memory's text. */
+  matchedKeywords: string[];
+}
+
+/**
+ * The public shape returned by retrieveMemories().
+ * Contains only what callers need — scoring internals stay in MemoryCandidate.
+ */
+export interface RetrievedMemory {
+  text: string;
+  score: number;
+  category: MemoryCategory;
+  importance: number;
 }
 
 /**

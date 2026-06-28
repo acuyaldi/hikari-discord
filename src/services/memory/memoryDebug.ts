@@ -1,4 +1,4 @@
-import type { DetectionResult } from './types';
+import type { DetectionResult, MemoryCandidate } from './types';
 
 const DEBUG = process.env.DEBUG_MEMORY === 'true';
 
@@ -27,6 +27,19 @@ export function logRetrieval(memories: string[]): void {
 
   const list = memories.map((m) => `- ${m}`).join('\n');
   console.log(`[Memory Retriever]\nRetrieved Memories:\n${list}`);
+}
+
+/** Logs retrieved candidates with full score breakdown when DEBUG_MEMORY=true. */
+export function logRetrievalWithScores(candidates: MemoryCandidate[]): void {
+  if (!DEBUG || candidates.length === 0) return;
+
+  const lines = candidates.map((c) => {
+    const { keyword, importance, usage, confidence, recency } = c.scoreBreakdown;
+    const bd = `kw=${keyword.toFixed(0)} imp=${importance} use=${usage.toFixed(0)} conf=${confidence} rec=${recency.toFixed(0)}`;
+    const kwTag = c.matchedKeywords.length > 0 ? ` (matched: ${c.matchedKeywords.join(', ')})` : '';
+    return `- [${c.score.toFixed(1)} | ${bd}] ${c.memory.slice(0, 60)}${kwTag}`;
+  });
+  console.log(`[Memory Retriever]\nRetrieved ${candidates.length} memories:\n${lines.join('\n')}`);
 }
 
 /**
