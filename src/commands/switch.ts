@@ -13,7 +13,7 @@ export const data = new SlashCommandBuilder()
         { name: 'Auto (Pilih Cerdas)', value: 'auto' },
         { name: 'Gemini (Default)', value: 'gemini' },
         { name: 'Groq (Cepat)', value: 'groq' },
-        { name: 'OpenAI (Kreatif)', value: 'openai' },
+        { name: 'OpenRouter (Kreatif)', value: 'openrouter' },
       ),
   );
 
