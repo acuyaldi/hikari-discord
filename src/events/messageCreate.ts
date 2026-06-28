@@ -5,6 +5,7 @@ import { splitMessage } from '../utils/splitmessage';
 import { generateVoice } from '../services/tts';
 import { checkCooldown } from '../utils/cooldown';
 import { chat } from '../services/chat';
+import { runMemoryPipeline } from '../services/memory/memoryPipeline';
 
 export function registerMessageCreate(client: Client): void {
   client.on('messageCreate', async (message) => {
@@ -17,6 +18,7 @@ export function registerMessageCreate(client: Client): void {
     if (checkCooldown(userId)) return;
 
     let promptText = message.content.replace(`<@${client.user!.id}>`, '').trim();
+    const userMessageText = promptText;
     const firstAttachment = message.attachments.first();
     const hasImage = message.attachments.size > 0 && (firstAttachment?.contentType?.startsWith('image/') ?? false);
 
@@ -31,6 +33,7 @@ export function registerMessageCreate(client: Client): void {
 
       const result = await chat({
         userId,
+        guildId: message.guildId,
         channelId,
         promptText,
         hasImage,
@@ -52,6 +55,8 @@ export function registerMessageCreate(client: Client): void {
       for (let i = 1; i < textChunks.length; i++) {
         await message.channel.send(textChunks[i]);
       }
+
+      void runMemoryPipeline(userId, message.guildId, userMessageText);
     } catch (error) {
       await message.reply('Gomennasai Senpai... Sirkuit otak Hikari sedang korsleting! 🥺💢');
     }
