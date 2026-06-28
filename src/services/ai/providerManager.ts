@@ -1,5 +1,5 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
-import { AIProviderName } from './types';
+import { AIProviderName, TaskType } from './types';
 import { AI_PROVIDER_ORDER } from '../../config/env';
 import { recordSuccess, recordFailure } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
@@ -28,8 +28,32 @@ export class ProviderManager {
     return this.providers.get(name);
   }
 
+  private capabilityFor(taskType: TaskType): ((p: AIProvider) => boolean) | null {
+    switch (taskType) {
+      case TaskType.CODING:
+        return (p) => p.supportsCoding;
+      case TaskType.VISION:
+        return (p) => p.supportsVision;
+      case TaskType.REASONING:
+        return (p) => p.supportsReasoning;
+      case TaskType.SEARCH:
+        return (p) => p.supportsVision; // Gemini is the only provider with Google Search
+      default:
+        return null;
+    }
+  }
+
+  private orderByCapability(base: AIProviderName[], taskType: TaskType): AIProviderName[] {
+    const filter = this.capabilityFor(taskType);
+    if (!filter) return base;
+    const matching = base.filter((n) => { const p = this.providers.get(n); return p && filter(p); });
+    const rest = base.filter((n) => !matching.includes(n));
+    return [...matching, ...rest];
+  }
+
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    const order = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
+    const base = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
+    const order = this.orderByCapability(base, request.taskType);
     let lastError: unknown;
 
     for (const name of order) {

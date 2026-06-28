@@ -9,7 +9,7 @@ export class GeminiProvider implements AIProvider {
   readonly name = AIProviderName.GEMINI;
   readonly supportsVision = true;
   readonly supportsReasoning = true;
-  readonly supportsCoding = false;
+  readonly supportsCoding = true;
 
   async generate(request: ChatRequest): Promise<ChatResponse> {
     const {
@@ -51,7 +51,7 @@ export class GeminiProvider implements AIProvider {
     const response = await getGeminiChat(channelId, dynamicSystemInstruction).sendMessage({
       message: messageContent,
     });
-    const replyText = response.text;
+    const replyText = response.text ?? '';
 
     // Keep Groq history in sync so the fallback has full conversation context.
     const groqHistory = getGroqHistory(channelId, dynamicSystemInstruction);

@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import { OPENROUTER_API_KEY, OPENROUTER_MODEL } from '../../../config/env';
-import { getGroqHistory } from '../../chatMemory';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
 
@@ -18,21 +17,19 @@ export class OpenRouterProvider implements AIProvider {
   async generate(request: ChatRequest): Promise<ChatResponse> {
     if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
 
-    const { channelId, dynamicSystemInstruction, finalPrompt } = request;
+    const { dynamicSystemInstruction, finalPrompt } = request;
 
-    const history = getGroqHistory(channelId, dynamicSystemInstruction);
-    if (history[history.length - 1]?.content !== finalPrompt) {
-      history.push({ role: 'user', content: finalPrompt });
-    }
+    const messages: { role: 'system' | 'user'; content: string }[] = [
+      { role: 'system', content: dynamicSystemInstruction },
+      { role: 'user', content: finalPrompt },
+    ];
 
     const completion = await client.chat.completions.create({
       model: OPENROUTER_MODEL,
-      messages: history,
+      messages,
     });
 
     const replyText = completion.choices[0].message.content ?? '';
-    history.push({ role: 'assistant', content: replyText });
-
     return { replyText, providerUsed: AIProviderName.OPENROUTER };
   }
 }

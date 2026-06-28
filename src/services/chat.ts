@@ -89,8 +89,13 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
 
   replyText = response.replyText;
 
-  if (response.providerUsed !== AIProviderName.GEMINI) {
-    engineIndicator = '\n\n*(⚡ Hikari saat ini menggunakan otak cadangan: Groq Llama-3.1)*';
+  const fallbackLabels: Partial<Record<AIProviderName, string>> = {
+    [AIProviderName.GROQ]: 'Groq Llama-3.1',
+    [AIProviderName.OPENROUTER]: 'OpenRouter',
+  };
+  const fallbackLabel = fallbackLabels[response.providerUsed];
+  if (fallbackLabel) {
+    engineIndicator = `\n\n*(⚡ Hikari saat ini menggunakan otak cadangan: ${fallbackLabel})*`;
   }
 
   return { replyText, engineIndicator };
