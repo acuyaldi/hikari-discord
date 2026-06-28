@@ -1,6 +1,7 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName } from './types';
 import { AI_PROVIDER_ORDER } from '../../config/env';
+import { recordSuccess, recordFailure } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
 import { OpenRouterProvider } from './providers/openrouterProvider';
@@ -35,9 +36,13 @@ export class ProviderManager {
       const provider = this.providers.get(name);
       if (!provider) continue;
 
+      const start = Date.now();
       try {
-        return await provider.generate(request);
+        const response = await provider.generate(request);
+        recordSuccess(name, Date.now() - start);
+        return response;
       } catch (err) {
+        recordFailure(name);
         console.error(`${name} Error, trying next provider:`, err);
         lastError = err;
 
