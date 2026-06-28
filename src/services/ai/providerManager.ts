@@ -15,9 +15,33 @@ export class ProviderManager {
   }
 
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    const gemini = this.providers.get(AIProviderName.GEMINI);
-    if (!gemini) throw new Error('Gemini provider not registered');
-    return gemini.generate(request);
+    const order: AIProviderName[] = [AIProviderName.GEMINI, AIProviderName.GROQ];
+    let lastError: unknown;
+
+    for (const name of order) {
+      const provider = this.providers.get(name);
+      if (!provider) continue;
+
+      try {
+        return await provider.generate(request);
+      } catch (err) {
+        console.error(`${name} Error, trying next provider:`, err);
+        lastError = err;
+
+        // If the request has an image and no remaining provider supports vision, abort gracefully.
+        const remaining = order.slice(order.indexOf(name) + 1);
+        const hasNextVision = remaining.some((n) => this.providers.get(n)?.supportsVision);
+        if (request.hasImage && !hasNextVision) {
+          return {
+            replyText: '',
+            providerUsed: name,
+            earlyReply: 'Gomennasai Senpai... Sirkuit pembaca gambar Gemini sedang kelelahan! 🥺💢',
+          };
+        }
+      }
+    }
+
+    throw lastError ?? new Error('All providers failed');
   }
 }
 
