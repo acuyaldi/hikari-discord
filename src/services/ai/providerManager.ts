@@ -1,0 +1,92 @@
+import type { AIProvider, ChatRequest, ChatResponse } from './types';
+import { AIProviderName, TaskType } from './types';
+import { AI_PROVIDER_ORDER } from '../../config/env';
+import { recordSuccess, recordFailure } from './providerMetrics';
+import { GeminiProvider } from './providers/geminiProvider';
+import { GroqProvider } from './providers/groqProvider';
+import { OpenRouterProvider } from './providers/openrouterProvider';
+
+const VALID_NAMES = new Set<string>(Object.values(AIProviderName));
+
+function parseProviderOrder(raw: string): AIProviderName[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => VALID_NAMES.has(s)) as AIProviderName[];
+}
+
+const CONFIGURED_ORDER = parseProviderOrder(AI_PROVIDER_ORDER);
+
+export class ProviderManager {
+  private readonly providers = new Map<AIProviderName, AIProvider>();
+
+  registerProvider(provider: AIProvider): void {
+    this.providers.set(provider.name, provider);
+  }
+
+  getProvider(name: AIProviderName): AIProvider | undefined {
+    return this.providers.get(name);
+  }
+
+  private capabilityFor(taskType: TaskType): ((p: AIProvider) => boolean) | null {
+    switch (taskType) {
+      case TaskType.CODING:
+        return (p) => p.supportsCoding;
+      case TaskType.VISION:
+        return (p) => p.supportsVision;
+      case TaskType.REASONING:
+        return (p) => p.supportsReasoning;
+      case TaskType.SEARCH:
+        return (p) => p.supportsVision; // Gemini is the only provider with Google Search
+      default:
+        return null;
+    }
+  }
+
+  private orderByCapability(base: AIProviderName[], taskType: TaskType): AIProviderName[] {
+    const filter = this.capabilityFor(taskType);
+    if (!filter) return base;
+    const matching = base.filter((n) => { const p = this.providers.get(n); return p && filter(p); });
+    const rest = base.filter((n) => !matching.includes(n));
+    return [...matching, ...rest];
+  }
+
+  async generate(request: ChatRequest): Promise<ChatResponse> {
+    const base = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
+    const order = this.orderByCapability(base, request.taskType);
+    let lastError: unknown;
+
+    for (const name of order) {
+      const provider = this.providers.get(name);
+      if (!provider) continue;
+
+      const start = Date.now();
+      try {
+        const response = await provider.generate(request);
+        recordSuccess(name, Date.now() - start);
+        return response;
+      } catch (err) {
+        recordFailure(name);
+        console.error(`${name} Error, trying next provider:`, err);
+        lastError = err;
+
+        const remaining = order.slice(order.indexOf(name) + 1);
+        const hasNextVision = remaining.some((n) => this.providers.get(n)?.supportsVision);
+        if (request.hasImage && !hasNextVision) {
+          return {
+            replyText: '',
+            providerUsed: name,
+            earlyReply: 'Gomennasai Senpai... Sirkuit pembaca gambar Gemini sedang kelelahan! 🥺💢',
+          };
+        }
+      }
+    }
+
+    throw lastError ?? new Error('All providers failed');
+  }
+}
+
+export const providerManager = new ProviderManager();
+providerManager.registerProvider(new GeminiProvider());
+providerManager.registerProvider(new GroqProvider());
+providerManager.registerProvider(new OpenRouterProvider());

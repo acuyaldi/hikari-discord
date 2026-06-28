@@ -10,6 +10,7 @@ import * as feedbackCmd from './src/commands/feedback';
 import * as drawCmd from './src/commands/draw';
 import * as switchCmd from './src/commands/switch';
 import * as analyzeCmd from './src/commands/analyze';
+import * as statsCmd from './src/commands/stats';
 
 const client = new Client({
   intents: [
@@ -26,6 +27,7 @@ const commands: Command[] = [
   drawCmd,
   switchCmd,
   analyzeCmd,
+  statsCmd,
 ];
 
 registerEvents(client, commands);
