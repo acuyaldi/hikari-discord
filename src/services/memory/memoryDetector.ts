@@ -12,9 +12,19 @@ import type { MemoryCategory } from './types';
  */
 export type MemoryDecision =
   | {
-      action: 'insert' | 'update';
+      action: 'insert';
       category: MemoryCategory;
       memory: string;
+      importance: number;
+      confidence: number;
+    }
+  | {
+      action: 'update';
+      category: MemoryCategory;
+      memory: string;
+      newMemory?: string;
+      oldMemoryHint?: string;
+      targetMemoryId?: number;
       importance: number;
       confidence: number;
     }
@@ -112,6 +122,8 @@ Decide if the user message contains a fact worth storing for future conversation
 - Return "update" when the message implies a change to an existing fact:
   "I upgraded to ...", "I switched to ...", "I changed jobs", "now I use ..."
 - Return "insert" for a first-time statement of a fact
+- For "update", put the replacement fact in "memory" and include "oldMemoryHint"
+  when the message mentions or strongly implies the old fact being replaced.
 
 ## Categories
 profile      — name, age, nationality
@@ -143,7 +155,7 @@ If worth remembering:
 {"action":"insert","category":"hardware","memory":"User owns an RTX 4060.","importance":90,"confidence":100}
 
 If updating an existing fact:
-{"action":"update","category":"hardware","memory":"User upgraded to RTX 5070.","importance":90,"confidence":100}
+{"action":"update","category":"hardware","memory":"User uses an RTX 5070.","oldMemoryHint":"previous GPU","importance":90,"confidence":100}
 
 If nothing worth remembering:
 {"action":"ignore"}
@@ -170,21 +182,39 @@ function validateDecision(parsed: unknown): MemoryDecision {
   if (action !== 'insert' && action !== 'update') return IGNORE;
 
   const category = obj['category'];
-  const memory = obj['memory'];
+  const memory = obj['memory'] ?? obj['newMemory'];
+  const newMemory = obj['newMemory'];
+  const oldMemoryHint = obj['oldMemoryHint'];
+  const targetMemoryId = obj['targetMemoryId'];
   const importance = obj['importance'];
   const confidence = obj['confidence'];
 
   if (typeof category !== 'string' || !VALID_CATEGORIES.has(category as MemoryCategory)) return IGNORE;
   if (typeof memory !== 'string' || memory.trim().length === 0) return IGNORE;
   if (typeof importance !== 'number' || typeof confidence !== 'number') return IGNORE;
+  if (newMemory !== undefined && typeof newMemory !== 'string') return IGNORE;
+  if (oldMemoryHint !== undefined && typeof oldMemoryHint !== 'string') return IGNORE;
+  if (targetMemoryId !== undefined && !Number.isInteger(targetMemoryId)) return IGNORE;
 
-  return {
+  const baseDecision = {
     action,
     category: category as MemoryCategory,
     memory: memory.trim(),
     importance: Math.max(0, Math.min(100, Math.round(importance))),
     confidence: Math.max(0, Math.min(100, Math.round(confidence))),
   };
+
+  if (action === 'update') {
+    return {
+      ...baseDecision,
+      action,
+      ...(newMemory !== undefined ? { newMemory: newMemory.trim() } : {}),
+      ...(oldMemoryHint !== undefined ? { oldMemoryHint: oldMemoryHint.trim() } : {}),
+      ...(targetMemoryId !== undefined ? { targetMemoryId: targetMemoryId as number } : {}),
+    };
+  }
+
+  return { ...baseDecision, action };
 }
 
 function logDecision(message: string, decision: MemoryDecision): void {
@@ -201,6 +231,12 @@ function logDecision(message: string, decision: MemoryDecision): void {
       `Decision: ${decision.action}\n` +
       `Category: ${decision.category}\n` +
       `Memory: ${decision.memory}\n` +
+      (decision.action === 'update' && decision.oldMemoryHint
+        ? `Old hint: ${decision.oldMemoryHint}\n`
+        : '') +
+      (decision.action === 'update' && decision.targetMemoryId !== undefined
+        ? `Target ID: ${decision.targetMemoryId}\n`
+        : '') +
       `Importance: ${decision.importance}\n` +
       `Confidence: ${decision.confidence}`,
   );
