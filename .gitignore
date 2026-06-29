@@ -4,3 +4,9 @@ node_modules/
 database.sqlite
 *.log
 dist/
+
+# Local agent/tooling workspace files
+.agents/
+.codex/
+skills-lock.json
+docs/superpowers/plans/
