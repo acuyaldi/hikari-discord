@@ -348,3 +348,131 @@ test('trivia applies minus points to wrong locked answer', async () => {
   assert.equal(score?.points, -5);
   db.close();
 });
+
+test('trivia retries when generated question repeats in the same session', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+
+  const harness = createHarness();
+  let callCount = 0;
+
+  await executeTrivia(harness.interaction as never, { db } as never, {
+    questionCount: 2,
+    generateQuestion: async () => {
+      callCount += 1;
+
+      if (callCount <= 2) {
+        return {
+          kategori: 'Umum',
+          soal: 'Pertanyaan yang sama?',
+          pilihan: ['A. Satu', 'B. Dua', 'C. Tiga', 'D. Empat'],
+          jawaban_benar: 'A',
+        };
+      }
+
+      return {
+        kategori: 'Umum',
+        soal: 'Pertanyaan berbeda untuk ronde berikutnya?',
+        pilihan: ['A. Satu', 'B. Dua', 'C. Tiga', 'D. Empat'],
+        jawaban_benar: 'B',
+      };
+    },
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.emitEnd('time');
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.emitEnd('time');
+
+  assert.equal(callCount, 3);
+  db.close();
+});
+
+test('trivia avoids recently used questions across sessions in same guild', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+
+  let callCount = 0;
+
+  const firstSession = createHarness('channel-persist');
+  await executeTrivia(firstSession.interaction as never, { db } as never, {
+    questionCount: 1,
+    generateQuestion: async () => {
+      callCount += 1;
+      return {
+        kategori: 'Umum',
+        soal: 'Soal lama lintas sesi?',
+        pilihan: ['A. Satu', 'B. Dua', 'C. Tiga', 'D. Empat'],
+        jawaban_benar: 'A',
+      };
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await firstSession.emitEnd('time');
+
+  const secondSession = createHarness('channel-persist');
+  await executeTrivia(secondSession.interaction as never, { db } as never, {
+    questionCount: 1,
+    generateQuestion: async () => {
+      callCount += 1;
+
+      if (callCount === 2) {
+        return {
+          kategori: 'Umum',
+          soal: 'Soal lama lintas sesi?',
+          pilihan: ['A. Satu', 'B. Dua', 'C. Tiga', 'D. Empat'],
+          jawaban_benar: 'A',
+        };
+      }
+
+      return {
+        kategori: 'Umum',
+        soal: 'Soal baru lintas sesi?',
+        pilihan: ['A. Satu', 'B. Dua', 'C. Tiga', 'D. Empat'],
+        jawaban_benar: 'B',
+      };
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await secondSession.emitEnd('time');
+
+  assert.equal(callCount, 3);
+  db.close();
+});
+
+test('trivia result shows correct answer and per-user point breakdown', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+
+  const harness = createHarness();
+  await executeTrivia(harness.interaction as never, { db } as never, {
+    questionCount: 1,
+    nowMs: () => 1_700_000_000_000,
+    generateQuestion: async () => ({
+      kategori: 'Sains',
+      soal: 'Ibukota Prancis?',
+      pilihan: ['A. Berlin', 'B. Madrid', 'C. Paris', 'D. Roma'],
+      jawaban_benar: 'C',
+    }),
+  });
+
+  const repliesA: Array<unknown> = [];
+  const repliesB: Array<unknown> = [];
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.emitCollect(createButton('trivia_C', 'user-a', repliesA, 'trivia-channel-1'));
+  await harness.emitCollect(createButton('trivia_A', 'user-b', repliesB, 'trivia-channel-1'));
+  await harness.emitEnd('time');
+
+  const lastPayload = harness.editReplyPayloads[harness.editReplyPayloads.length - 1] as
+    | { embeds?: Array<{ toJSON: () => { description?: string } }> }
+    | undefined;
+  const description = lastPayload?.embeds?.[0]?.toJSON().description ?? '';
+
+  assert.match(description, /Jawaban benar: \*\*C\*\*/);
+  assert.match(description, /<@user-a> pilih \*\*C\*\* -> ✅ \+10/);
+  assert.match(description, /<@user-b> pilih \*\*A\*\* -> ❌ -5/);
+  db.close();
+});

@@ -30,6 +30,8 @@ const ROUND_TIMEOUT_MS = 15_000;
 const DEFAULT_SESSION_QUESTION_COUNT = 5;
 const CORRECT_ANSWER_POINTS = 10;
 const WRONG_ANSWER_POINTS = -5;
+const RECENT_QUESTION_LIMIT = 50;
+const INTER_ROUND_READY_DELAY_MS = 4_000;
 
 const ANSWER_KEYS = ['A', 'B', 'C', 'D'] as const;
 
@@ -124,6 +126,90 @@ function pickFallbackQuestion(): TriviaQuestion {
   const candidates = localFallbackQuestions();
   const index = Math.floor(Math.random() * candidates.length);
   return candidates[index]!;
+}
+
+function questionKey(question: TriviaQuestion): string {
+  return question.soal
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function ensureTriviaRecentQuestionTable(db: CommandContext['db']): void {
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS trivia_recent_questions (
+      guild_id TEXT NOT NULL,
+      question_key TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (guild_id, question_key)
+    )`,
+  ).run();
+
+  db.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_trivia_recent_questions_guild_updated
+     ON trivia_recent_questions(guild_id, updated_at DESC)`,
+  ).run();
+}
+
+function loadRecentQuestionKeys(db: CommandContext['db'], guildId: string): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT question_key
+       FROM trivia_recent_questions
+       WHERE guild_id = ?
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+    )
+    .all(guildId, RECENT_QUESTION_LIMIT) as Array<{ question_key: string }>;
+
+  return new Set(rows.map((row) => row.question_key));
+}
+
+function rememberQuestionKey(
+  db: CommandContext['db'],
+  guildId: string,
+  key: string,
+  nowMs: number,
+): void {
+  db.prepare(
+    `INSERT INTO trivia_recent_questions (guild_id, question_key, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(guild_id, question_key)
+     DO UPDATE SET updated_at = excluded.updated_at`,
+  ).run(guildId, key, nowMs);
+
+  db.prepare(
+    `DELETE FROM trivia_recent_questions
+     WHERE guild_id = ?
+       AND question_key NOT IN (
+         SELECT question_key
+         FROM trivia_recent_questions
+         WHERE guild_id = ?
+         ORDER BY updated_at DESC
+         LIMIT ?
+       )`,
+  ).run(guildId, guildId, RECENT_QUESTION_LIMIT);
+}
+
+async function resolveUniqueRoundQuestion(
+  resolveQuestion: () => Promise<TriviaQuestion>,
+  usedQuestionKeys: Set<string>,
+): Promise<TriviaQuestion> {
+  let fallbackCandidate: TriviaQuestion | null = null;
+
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const candidate = await resolveQuestion();
+    const key = questionKey(candidate);
+
+    if (!usedQuestionKeys.has(key)) {
+      return candidate;
+    }
+
+    fallbackCandidate = candidate;
+  }
+
+  // If every attempt repeats, continue with the latest candidate to avoid blocking gameplay.
+  return fallbackCandidate ?? pickFallbackQuestion();
 }
 
 async function generateTriviaQuestion(): Promise<TriviaQuestion> {
@@ -223,10 +309,20 @@ function buildResultEmbed(
     roundLabel: string;
     correctUserIds: string[];
     wrongUserIds: string[];
+    answerSummaries: string[];
+    nextRoundStartSeconds?: number;
   },
 ): EmbedBuilder {
   const endTimeStatus = options.timedOut ? '⏱️ **Waktu Habis!**' : '⏱️ **Ronde Selesai**';
   const embed = buildQuestionEmbed(question, endTimeStatus, options.roundLabel);
+  const nextRoundText =
+    options.nextRoundStartSeconds !== undefined
+      ? `\n\n➡️ Ronde berikutnya mulai <t:${options.nextRoundStartSeconds}:R>. Bersiap!`
+      : '';
+  const participantSummary =
+    options.answerSummaries.length > 0
+      ? `\n\n**Ringkasan Jawaban Pemain**\n${options.answerSummaries.join('\n')}`
+      : '\n\nBelum ada pemain yang mengunci jawaban di ronde ini.';
 
   if (options.correctUserIds.length > 0) {
     embed
@@ -237,9 +333,8 @@ function buildResultEmbed(
           `Jawaban benar: **${question.jawaban_benar}**`,
           `Benar: ${options.correctUserIds.length} pemain (+${CORRECT_ANSWER_POINTS} poin)`,
           `Salah: ${options.wrongUserIds.length} pemain (${WRONG_ANSWER_POINTS} poin)`,
-          options.correctUserIds.length > 0
-            ? `Pemain benar: ${options.correctUserIds.map((id) => `<@${id}>`).join(', ')}`
-            : '',
+          participantSummary,
+          nextRoundText,
         ]
           .filter((line) => line.length > 0)
           .join('\n'),
@@ -251,9 +346,13 @@ function buildResultEmbed(
     embed
       .setColor(0xed4245)
       .setTitle('⏰ Waktu Habis')
-      .setDescription(`Tidak ada yang benar kali ini. Jawaban benar: **${question.jawaban_benar}**`);
+      .setDescription(
+        `Tidak ada yang benar kali ini. Jawaban benar: **${question.jawaban_benar}**${participantSummary}${nextRoundText}`,
+      );
+    return embed;
   }
 
+  embed.setDescription(`Jawaban benar: **${question.jawaban_benar}**${participantSummary}${nextRoundText}`);
   return embed;
 }
 
@@ -270,6 +369,12 @@ function addPoints(db: CommandContext['db'], guildId: string, userId: string, de
      ON CONFLICT(guild_id, user_id)
      DO UPDATE SET points = points + excluded.points`,
   ).run(guildId, userId, delta);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export async function execute(
@@ -306,14 +411,39 @@ export async function executeTrivia(
   const resolveQuestion = dependencies.generateQuestion ?? (() => generateTriviaQuestionWithRetry());
   const nowMs = dependencies.nowMs ?? Date.now;
   const sessionQuestionCount = Math.max(1, dependencies.questionCount ?? DEFAULT_SESSION_QUESTION_COUNT);
+  let usedQuestionKeys = new Set<string>();
+
+  try {
+    ensureTriviaRecentQuestionTable(db);
+    usedQuestionKeys = loadRecentQuestionKeys(db, interaction.guildId);
+  } catch (error) {
+    console.error('[Trivia] failed to load recent question history:', error);
+  }
 
   await interaction.deferReply();
   await interaction.editReply(`Hikari sedang memikirkan soal... Sesi dimulai (${sessionQuestionCount} soal).`);
 
   const playRound = async (roundNumber: number): Promise<void> => {
+    const roundLabel = `${roundNumber}/${sessionQuestionCount}`;
+    await interaction
+      .editReply({
+        content: `⏳ Menyiapkan ronde ${roundLabel}... soal baru lagi dimasak, siap-siap ya!`,
+        embeds: [],
+        components: [],
+      })
+      .catch(() => undefined);
+
     let question: TriviaQuestion;
     try {
-      question = await resolveQuestion();
+      question = await resolveUniqueRoundQuestion(resolveQuestion, usedQuestionKeys);
+      const key = questionKey(question);
+      usedQuestionKeys.add(key);
+
+      try {
+        rememberQuestionKey(db, interaction.guildId!, key, nowMs());
+      } catch (error) {
+        console.error('[Trivia] failed to persist question history:', error);
+      }
     } catch (error) {
       console.error('[Trivia] failed to generate question:', error);
       await interaction.editReply(
@@ -325,7 +455,6 @@ export async function executeTrivia(
 
     const lockedUsers = new Set<string>();
     const answersByUser = new Map<string, AnswerKey>();
-    const roundLabel = `${roundNumber}/${sessionQuestionCount}`;
     const endSeconds = Math.floor((nowMs() + ROUND_TIMEOUT_MS) / 1000);
     const countdownText = `⏱️ **Sisa Waktu:** <t:${endSeconds}:R>`;
 
@@ -368,10 +497,20 @@ export async function executeTrivia(
       const timedOut = reason === 'time';
       const correctUserIds: string[] = [];
       const wrongUserIds: string[] = [];
+      const answerSummaries: string[] = [];
+      const isLastRound = roundNumber >= sessionQuestionCount;
+      const nextRoundStartSeconds = isLastRound
+        ? undefined
+        : Math.floor((nowMs() + INTER_ROUND_READY_DELAY_MS) / 1000);
 
       for (const [userId, answer] of answersByUser.entries()) {
-        if (answer === question.jawaban_benar) correctUserIds.push(userId);
-        else wrongUserIds.push(userId);
+        if (answer === question.jawaban_benar) {
+          correctUserIds.push(userId);
+          answerSummaries.push(`• <@${userId}> pilih **${answer}** -> ✅ +${CORRECT_ANSWER_POINTS}`);
+        } else {
+          wrongUserIds.push(userId);
+          answerSummaries.push(`• <@${userId}> pilih **${answer}** -> ❌ ${WRONG_ANSWER_POINTS}`);
+        }
       }
 
       try {
@@ -393,6 +532,8 @@ export async function executeTrivia(
               roundLabel,
               correctUserIds,
               wrongUserIds,
+              answerSummaries,
+              nextRoundStartSeconds,
             }),
           ],
           components: answerButtons(true),
@@ -403,10 +544,11 @@ export async function executeTrivia(
         // Result already shown in the updated embed; avoid extra follow-up noise.
       }
 
-      if (roundNumber >= sessionQuestionCount) {
+      if (isLastRound) {
         activeTriviaChannels.delete(channelKey);
         return;
       }
+      await delay(INTER_ROUND_READY_DELAY_MS);
       void playRound(roundNumber + 1);
     });
   };

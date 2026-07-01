@@ -128,6 +128,20 @@ db.prepare(`
 `).run();
 
 db.prepare(`
+  CREATE TABLE IF NOT EXISTS trivia_recent_questions (
+    guild_id     TEXT NOT NULL,
+    question_key TEXT NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, question_key)
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_trivia_recent_questions_guild_updated
+  ON trivia_recent_questions(guild_id, updated_at DESC)
+`).run();
+
+db.prepare(`
   CREATE TABLE IF NOT EXISTS processed_message_events (
     message_id  TEXT PRIMARY KEY,
     created_at  INTEGER NOT NULL
