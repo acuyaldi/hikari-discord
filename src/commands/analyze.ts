@@ -4,9 +4,65 @@ import { PDFParse } from 'pdf-parse';
 import { splitMessage } from '../utils/splitmessage';
 import { baseSystemInstruction } from '../prompt/basePrompt';
 import { deepAnalysisInstruction } from '../prompt/deepPrompt';
+import { providerManager } from '../services/ai/providerManager';
+import { AIProviderName, TaskType } from '../services/ai/types';
+import { estimateContextTokens } from '../services/context/contextBuilder';
 import groq from '../ai/groq';
-import ai from '../ai/gemini';
 import type { CommandContext, UserRow } from '../types';
+
+const ANALYZE_PROMPT_TOKEN_BUDGET = 4_000;
+const ANALYZE_PROMPT_OVERHEAD_TOKENS = 250;
+const MIN_SOURCE_TOKEN_BUDGET = 1_000;
+
+export function describeAnalyzeEngine(
+  mode: 'standar' | 'mendalam',
+  provider: AIProviderName,
+  isFallback = false,
+): string {
+  if (mode === 'mendalam' && !isFallback && provider === AIProviderName.GROQ) {
+    return 'Groq GPT-OSS 120B 🔥 (Deep Analysis Mode)';
+  }
+
+  if (provider === AIProviderName.GEMINI) {
+    return mode === 'mendalam'
+      ? 'Gemini AI 🌟 (Deep Analysis Mode - Fallback)'
+      : 'Gemini AI 🌟 (Standar Mode)';
+  }
+
+  if (provider === AIProviderName.OPENROUTER) {
+    return mode === 'mendalam'
+      ? 'OpenRouter 🌐 (Deep Analysis Mode - Fallback)'
+      : 'OpenRouter 🌐 (Standar Mode - Fallback)';
+  }
+
+  return mode === 'mendalam'
+    ? 'Groq GPT-OSS 20B 🚀 (Deep Analysis Mode - Fallback)'
+    : 'Groq GPT-OSS 20B 🚀 (Standar Mode - Fallback)';
+}
+
+export function boundAnalysisSource(sourceText: string, customInstruction: string): string {
+  const instructionTokens = estimateContextTokens(customInstruction);
+  const sourceTokenBudget = Math.max(
+    MIN_SOURCE_TOKEN_BUDGET,
+    ANALYZE_PROMPT_TOKEN_BUDGET - instructionTokens - ANALYZE_PROMPT_OVERHEAD_TOKENS,
+  );
+
+  if (estimateContextTokens(sourceText) <= sourceTokenBudget) {
+    return sourceText;
+  }
+
+  const maxChars = sourceTokenBudget * 4;
+  const truncationMarker = '\n\n[... konten dipotong agar muat diproses model ...]\n\n';
+  const headChars = Math.max(0, Math.floor((maxChars - truncationMarker.length) * 0.75));
+  const tailChars = Math.max(0, maxChars - truncationMarker.length - headChars);
+  const boundedSource = `${sourceText.slice(0, headChars)}${truncationMarker}${sourceText.slice(-tailChars)}`;
+
+  console.log(
+    `[Analyze] source truncated chars=${sourceText.length}->${boundedSource.length} tokens=${estimateContextTokens(sourceText)}->${estimateContextTokens(boundedSource)}`,
+  );
+
+  return boundedSource;
+}
 
 async function extractAttachmentText(url: string, fileName: string, contentType: string | null): Promise<string> {
   console.log(
@@ -113,45 +169,57 @@ export async function execute(
       baseSystemInstruction +
       (userRow?.feedback_notes ? `\n[ATURAN DARI USER YANG WAJIB DIPATUHI: ${userRow.feedback_notes}]` : '');
 
-    const analysisPrompt = `${finalContentToAnalyze}\n\n[PERINTAH USER]: ${customInstruction}`;
+    const boundedContentToAnalyze = boundAnalysisSource(finalContentToAnalyze, customInstruction);
+    const analysisPrompt = `${boundedContentToAnalyze}\n\n[PERINTAH USER]: ${customInstruction}`;
     let resultText = '';
     let engineUsed = '';
 
     if (selectedMode === 'mendalam') {
-      engineUsed = 'Groq GPT-OSS 120B 🔥 (Deep Analysis Mode)';
-      console.log('[Analyze] using deep analysis mode with Groq GPT-OSS 120B');
-      const groqResponse = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
-          { role: 'user', content: analysisPrompt },
-        ],
-        model: 'openai/gpt-oss-120b',
-        temperature: 0.5,
-      });
-      resultText = groqResponse.choices[0].message.content ?? '';
-    } else {
-      engineUsed = 'Gemini AI 🌟 (Standar Mode)';
+      engineUsed = describeAnalyzeEngine('mendalam', AIProviderName.GROQ);
       try {
-        console.log('[Analyze] using standard analysis mode with Gemini 2.5 Flash');
-        const aiResponse = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: analysisPrompt,
-          config: { systemInstruction: dynamicSystemInstruction },
-        });
-        resultText = aiResponse.text ?? '';
-      } catch {
-        engineUsed = 'Groq GPT-OSS 20B 🚀 (Standar Mode - Fallback)';
-        console.log('[Analyze] Gemini standard analysis failed, falling back to Groq GPT-OSS 20B');
+        console.log('[Analyze] using deep analysis mode with Groq GPT-OSS 120B');
         const groqResponse = await groq.chat.completions.create({
           messages: [
-            { role: 'system', content: dynamicSystemInstruction },
+            { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
             { role: 'user', content: analysisPrompt },
           ],
-          model: 'openai/gpt-oss-20b',
-          temperature: 0.7,
+          model: 'openai/gpt-oss-120b',
+          temperature: 0.5,
         });
         resultText = groqResponse.choices[0].message.content ?? '';
+      } catch {
+        console.log('[Analyze] Groq deep analysis failed, falling back to OpenRouter then Gemini');
+        const response = await providerManager.generate({
+          userId,
+          guildId: interaction.guildId,
+          channelId: interaction.channelId ?? `interaction-${interaction.id}`,
+          promptText: analysisPrompt,
+          identityPrefix: '',
+          finalPrompt: analysisPrompt,
+          dynamicSystemInstruction: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}`,
+          hasImage: false,
+          taskType: TaskType.GENERAL,
+          preferredProviders: [AIProviderName.OPENROUTER, AIProviderName.GEMINI, AIProviderName.GROQ],
+        });
+        resultText = response.replyText;
+        engineUsed = describeAnalyzeEngine('mendalam', response.providerUsed, true);
       }
+    } else {
+      console.log('[Analyze] using standard analysis mode via provider manager');
+      const response = await providerManager.generate({
+        userId,
+        guildId: interaction.guildId,
+        channelId: interaction.channelId ?? `interaction-${interaction.id}`,
+        promptText: analysisPrompt,
+        identityPrefix: '',
+        finalPrompt: analysisPrompt,
+        dynamicSystemInstruction,
+        hasImage: false,
+        taskType: TaskType.GENERAL,
+        preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER, AIProviderName.GROQ],
+      });
+      resultText = response.replyText;
+      engineUsed = describeAnalyzeEngine('standar', response.providerUsed, response.providerUsed !== AIProviderName.GEMINI);
     }
 
     const replyHeader = `📂 **Sirkuit Analisis Sukses!**\n> **Engine:** \`${engineUsed}\`\n${sourceInfo}\n\n`;

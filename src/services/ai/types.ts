@@ -27,6 +27,7 @@ export interface ChatRequest {
   hasImage: boolean;
   imageUrl?: string;
   taskType: TaskType;
+  preferredProviders?: AIProviderName[];
 }
 
 export interface ChatResponse {

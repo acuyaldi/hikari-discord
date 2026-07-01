@@ -78,7 +78,12 @@ export class ProviderManager {
   }
 
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    const base = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
+    const base =
+      request.preferredProviders !== undefined && request.preferredProviders.length > 0
+        ? request.preferredProviders
+        : CONFIGURED_ORDER.length > 0
+          ? CONFIGURED_ORDER
+          : [AIProviderName.GEMINI];
     const capabilityOrder = request.hasImage
       ? base.filter((name) => this.providers.get(name)?.supportsVision)
       : this.orderByCapability(base, request.taskType);

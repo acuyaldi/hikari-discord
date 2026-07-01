@@ -134,6 +134,58 @@ test('ProviderManager ranks available providers before trying them', async () =>
   assert.deepEqual(calls, [AIProviderName.GROQ]);
 });
 
+test('ProviderManager honors per-request preferred provider order', async () => {
+  resetHealth();
+
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const breaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 });
+  const calls: AIProviderName[] = [];
+
+  const gemini: AIProvider = {
+    name: AIProviderName.GEMINI,
+    supportsVision: true,
+    supportsReasoning: true,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.GEMINI);
+      throw transientError(503);
+    },
+  };
+  const groq: AIProvider = {
+    name: AIProviderName.GROQ,
+    supportsVision: false,
+    supportsReasoning: false,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.GROQ);
+      return { replyText: 'groq', providerUsed: AIProviderName.GROQ };
+    },
+  };
+  const openrouter: AIProvider = {
+    name: AIProviderName.OPENROUTER,
+    supportsVision: false,
+    supportsReasoning: false,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.OPENROUTER);
+      return { replyText: 'openrouter', providerUsed: AIProviderName.OPENROUTER };
+    },
+  };
+
+  const manager = new ProviderManager({ circuitBreaker: breaker });
+  manager.registerProvider(gemini);
+  manager.registerProvider(groq);
+  manager.registerProvider(openrouter);
+
+  const response = await manager.generate({
+    ...request(TaskType.GENERAL),
+    preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER, AIProviderName.GROQ],
+  });
+
+  assert.equal(response.providerUsed, AIProviderName.OPENROUTER);
+  assert.deepEqual(calls, [AIProviderName.GEMINI, AIProviderName.OPENROUTER]);
+});
+
 test('OpenRouterProvider ranks models before trying them', async () => {
   resetHealth();
   recordHealthFailure('openrouter:model-a', transientError(503), true);
