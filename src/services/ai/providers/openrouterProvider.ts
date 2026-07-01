@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { OPENROUTER_API_KEY, OPENROUTER_MODELS } from '../../../config/env';
+import { DEBUG_AI, OPENROUTER_API_KEY, OPENROUTER_MODELS } from '../../../config/env';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
 import { recordModelSuccess, recordModelFailure } from '../providerMetrics';
@@ -16,7 +16,7 @@ const client = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
 });
 
-const DEBUG = process.env.DEBUG_AI === 'true';
+const DEBUG = DEBUG_AI;
 
 type OpenRouterMessage = { role: 'system' | 'user'; content: string };
 type OpenRouterCompletion = { choices: { message?: { content?: string | null } }[] };

@@ -1,3 +1,4 @@
+import { DEBUG_MEMORY } from '../../config/env';
 import { detectMemory } from './memoryDetector';
 import {
   existsMemory,
@@ -9,7 +10,7 @@ import {
 import type { MemoryDecision } from './memoryDetector';
 import type { MemoryRow } from './types';
 
-const DEBUG = process.env.DEBUG_MEMORY === 'true';
+const DEBUG = DEBUG_MEMORY;
 const MIN_UPDATE_CONFIDENCE = 70;
 const MIN_UPDATE_MATCH_SCORE = 55;
 

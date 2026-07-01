@@ -6,7 +6,7 @@ import { providerManager } from './ai/providerManager';
 import { trimHistoryForContext } from './context/adaptiveHistory';
 import { buildFinalContext } from './context/contextBuilder';
 import { getSummary } from './summary/summaryService';
-import { DEBUG_SUMMARY } from '../config/env';
+import { DEBUG_MEMORY, DEBUG_SUMMARY } from '../config/env';
 import { AIProviderName, TaskType } from './ai/types';
 import type { ChatRequest } from './ai/types';
 import type { ChatMessage } from './context/contextBuilder';
@@ -50,7 +50,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
   }
   const memoryLatency = Date.now() - memoryStart;
 
-  if (process.env.DEBUG_MEMORY === 'true') {
+  if (DEBUG_MEMORY) {
     const retrieved = (memoryContext.match(/•/g) ?? []).length;
     console.log(
       `[Memory Context]\nRetrieved: ${retrieved}\nCharacters: ${memoryContext.length}\nLatency: ${memoryLatency} ms`,
@@ -128,7 +128,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
   replyText = response.replyText;
 
   const fallbackLabels: Partial<Record<AIProviderName, string>> = {
-    [AIProviderName.GROQ]: 'Groq Llama-3.1',
+    [AIProviderName.GROQ]: 'Groq GPT-OSS 20B',
     [AIProviderName.OPENROUTER]: 'OpenRouter',
   };
   const fallbackLabel = fallbackLabels[response.providerUsed];
