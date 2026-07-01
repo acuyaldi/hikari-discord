@@ -11,6 +11,9 @@ import * as drawCmd from './src/commands/draw';
 import * as switchCmd from './src/commands/switch';
 import * as analyzeCmd from './src/commands/analyze';
 import * as statsCmd from './src/commands/stats';
+import * as healthCmd from './src/commands/health';
+import * as debugAiCmd from './src/commands/debugAi';
+import * as aiProviderCmd from './src/commands/aiProvider';
 import * as memoryCmd from './src/commands/memory';
 import * as rememberCmd from './src/commands/remember';
 import * as forgetCmd from './src/commands/forget';
@@ -31,6 +34,9 @@ const commands: Command[] = [
   switchCmd,
   analyzeCmd,
   statsCmd,
+  healthCmd,
+  debugAiCmd,
+  aiProviderCmd,
   memoryCmd,
   rememberCmd,
   forgetCmd,

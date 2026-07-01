@@ -5,6 +5,16 @@ import { recordSuccess, recordFailure } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
 import { OpenRouterProvider } from './providers/openrouterProvider';
+import {
+  circuitBreaker as defaultCircuitBreaker,
+  isTransientAIError,
+  type CircuitBreaker,
+} from './circuitBreaker';
+import { markCooldown, recordHealthFailure, recordHealthSuccess } from './healthCache';
+import { rankTargets } from './providerRanking';
+import { resolveProviderOverride } from './providerOverride';
+
+const DEBUG = process.env.DEBUG_AI === 'true';
 
 const VALID_NAMES = new Set<string>(Object.values(AIProviderName));
 
@@ -17,8 +27,24 @@ function parseProviderOrder(raw: string): AIProviderName[] {
 
 const CONFIGURED_ORDER = parseProviderOrder(AI_PROVIDER_ORDER);
 
+function applyProviderOverride(
+  order: AIProviderName[],
+  override: ReturnType<typeof resolveProviderOverride>,
+  providers: Map<AIProviderName, AIProvider>,
+  requiresVision: boolean,
+): AIProviderName[] {
+  if (override === 'auto') return order;
+  if (requiresVision && !providers.get(override)?.supportsVision) return order;
+  return [override, ...order.filter((name) => name !== override)];
+}
+
 export class ProviderManager {
   private readonly providers = new Map<AIProviderName, AIProvider>();
+  private readonly circuitBreaker: CircuitBreaker;
+
+  constructor(options: { circuitBreaker?: CircuitBreaker } = {}) {
+    this.circuitBreaker = options.circuitBreaker ?? defaultCircuitBreaker;
+  }
 
   registerProvider(provider: AIProvider): void {
     this.providers.set(provider.name, provider);
@@ -53,20 +79,59 @@ export class ProviderManager {
 
   async generate(request: ChatRequest): Promise<ChatResponse> {
     const base = CONFIGURED_ORDER.length > 0 ? CONFIGURED_ORDER : [AIProviderName.GEMINI];
-    const order = this.orderByCapability(base, request.taskType);
+    const capabilityOrder = request.hasImage
+      ? base.filter((name) => this.providers.get(name)?.supportsVision)
+      : this.orderByCapability(base, request.taskType);
+    const rankedOrder = rankTargets(capabilityOrder) as AIProviderName[];
+    const override = resolveProviderOverride(request.userId);
+    const order = applyProviderOverride(rankedOrder, override, this.providers, request.hasImage);
     let lastError: unknown;
+
+    if (DEBUG) {
+      console.log(
+        [
+          '[Provider Ranking]',
+          `task=${request.taskType.toUpperCase()}`,
+          `order before: ${capabilityOrder.join(',')}`,
+          `order after: ${rankedOrder.join(',')}`,
+        ].join('\n'),
+      );
+
+      if (override !== 'auto') {
+        console.log(
+          [
+            '[Provider Override]',
+            `user=${request.userId}`,
+            `override=${override}`,
+            `forced first provider=${override}`,
+          ].join('\n'),
+        );
+      }
+    }
 
     for (const name of order) {
       const provider = this.providers.get(name);
       if (!provider) continue;
+      if (!this.circuitBreaker.isAvailable(name)) {
+        const state = this.circuitBreaker.getState(name);
+        if (state.openedUntil) markCooldown(name, state.openedUntil, state.lastError);
+        continue;
+      }
 
       const start = Date.now();
       try {
         const response = await provider.generate(request);
-        recordSuccess(name, Date.now() - start);
+        const latencyMs = Date.now() - start;
+        recordSuccess(name, latencyMs);
+        recordHealthSuccess(name, latencyMs);
+        this.circuitBreaker.recordSuccess(name);
         return response;
       } catch (err) {
         recordFailure(name);
+        recordHealthFailure(name, err, isTransientAIError(err));
+        this.circuitBreaker.recordFailure(name, err);
+        const state = this.circuitBreaker.getState(name);
+        if (state.isOpen && state.openedUntil) markCooldown(name, state.openedUntil, err);
         console.error(`${name} Error, trying next provider:`, err);
         lastError = err;
 
@@ -80,6 +145,10 @@ export class ProviderManager {
           };
         }
       }
+    }
+
+    if (!lastError && order.some((name) => this.providers.has(name))) {
+      throw new Error('All providers are temporarily unavailable due to circuit breaker cooldown');
     }
 
     throw lastError ?? new Error('All providers failed');
