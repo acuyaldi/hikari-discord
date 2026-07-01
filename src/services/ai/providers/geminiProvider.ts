@@ -66,7 +66,7 @@ export class GeminiProvider implements AIProvider {
     groqHistory.push({ role: 'assistant', content: replyText });
 
     if (groqHistory.length > 25) {
-      console.log('🧠 Sirkuit Konteks Penuh, Mengompres Riwayat Obrolan...');
+      console.log('🧠 Riwayat obrolan mulai kepanjangan, sedang dikompres...');
       const coreTexts = groqHistory
         .slice(1, 15)
         .map((h) => `${h.role}: ${h.content}`)

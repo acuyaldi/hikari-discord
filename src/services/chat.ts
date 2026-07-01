@@ -71,10 +71,10 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     }
   }
 
-  const panggilan = userRow?.nickname ?? 'Senpai';
+  const panggilan = userRow?.nickname ?? 'teman';
   const injectIdentity =
-    panggilan !== 'Senpai'
-      ? `[INFO USER: Nama panggilan kesayangannya adalah "${panggilan}". Selalu sapa dia dengan nama tersebut!]\n\n`
+    panggilan !== 'teman'
+      ? `[INFO USER: Nama panggilan pilihannya adalah "${panggilan}". Sapa dia dengan nama tersebut saat relevan.]\n\n`
       : '';
   const totalAvailableMessages = options.recentMessages ?? [];
   const hasSummary =
@@ -133,7 +133,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
   };
   const fallbackLabel = fallbackLabels[response.providerUsed];
   if (fallbackLabel) {
-    engineIndicator = `\n\n*(⚡ Hikari saat ini menggunakan otak cadangan: ${fallbackLabel})*`;
+    engineIndicator = `\n\n*(⚡ Lagi pakai cadangan: ${fallbackLabel})*`;
   }
 
   return { replyText, engineIndicator };

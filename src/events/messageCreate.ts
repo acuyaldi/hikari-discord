@@ -195,7 +195,7 @@ export function registerMessageCreate(
     const hasImage = imageAttachment !== undefined;
 
     if (!promptText && !hasImage) {
-      await message.reply('Halo Senpai! Ada yang bisa Hikari bantu? ✨');
+      await message.reply('Hai. Lempar aja yang mau dibantu. Aku lagi cukup waras buat mikir.');
       return;
     }
     if (!promptText && hasImage) promptText = 'Jelaskan gambar ini secara detail dan kreatif.';
@@ -277,7 +277,7 @@ export function registerMessageCreate(
         }),
       });
     } catch (error) {
-      await message.reply('Gomennasai Senpai... Sirkuit otak Hikari sedang korsleting! 🥺💢');
+      await message.reply('Yah, aku lagi error sebentar. Mesin pikirnya batuk kecil. Coba kirim lagi pesanmu.');
     }
   });
 }

@@ -4,7 +4,7 @@ import { clearMemory } from '../services/chatMemory';
 
 export const data = new SlashCommandBuilder()
   .setName('reset')
-  .setDescription('Menghapus ingatan Hikari di channel ini ✨');
+  .setDescription('Reset ingatan Hikari di channel ini');
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
@@ -12,6 +12,6 @@ export async function execute(
 ): Promise<void> {
   clearMemory(interaction.channelId);
   await interaction.reply(
-    '✨ *Poof!* Sirkuit ingatan Hikari di channel ini sudah di-reset! Mari mulai dari lembaran baru, Senpai! 🌸',
+    'Oke, riwayat obrolan di channel ini sudah direset. Kita mulai lagi dari nol.',
   );
 }

@@ -33,15 +33,15 @@ export function getImageAttachmentRejection(
   const maxBytes = maxSizeMb * 1024 * 1024;
 
   if (!enabled) {
-    return 'Maaf Senpai, analisis gambar sedang dimatikan sementara.';
+    return 'Analisis gambar sedang dimatikan sementara.';
   }
 
   if (!isSupportedImageAttachment(attachment)) {
-    return 'Maaf Senpai, Hikari baru bisa membaca gambar PNG, JPEG, atau WebP.';
+    return 'Aku baru bisa membaca gambar PNG, JPEG, atau WebP.';
   }
 
   if (size > maxBytes) {
-    return `Maaf Senpai, gambar itu terlalu besar untuk Hikari baca. Maksimal ${maxSizeMb} MB ya.`;
+    return `Gambar itu terlalu besar buat kubaca. Maksimal ${maxSizeMb} MB ya.`;
   }
 
   return null;

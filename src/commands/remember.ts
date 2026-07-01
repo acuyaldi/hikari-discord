@@ -12,7 +12,7 @@ const MANUAL_MEMORY_CONFIDENCE = 100;
 
 export const data = new SlashCommandBuilder()
   .setName('remember')
-  .setDescription('Minta Hikari menyimpan memory tentang kamu')
+  .setDescription('Simpan memory tentang kamu')
   .addStringOption((option) =>
     option
       .setName('memory')
@@ -55,7 +55,7 @@ export async function execute(
 
   if (!existsResult.success) {
     await interaction.reply({
-      content: 'Gomen, Hikari belum bisa mengecek memory itu sekarang.',
+      content: 'Aku belum bisa mengecek memory itu sekarang.',
       ephemeral: true,
     });
     return;
@@ -63,7 +63,7 @@ export async function execute(
 
   if (existsResult.data) {
     await interaction.reply({
-      content: 'Memory itu sudah tersimpan, jadi Hikari tidak menambah duplikat.',
+      content: 'Memory itu sudah tersimpan, jadi aku tidak menambah duplikat.',
       ephemeral: true,
     });
     return;
@@ -81,8 +81,8 @@ export async function execute(
 
   await interaction.reply({
     content: saveResult.success
-      ? 'Oke, memory itu sudah Hikari simpan.'
-      : 'Gomen, Hikari belum bisa menyimpan memory itu sekarang.',
+      ? 'Sip, memory itu sudah kusimpan.'
+      : 'Aku belum bisa menyimpan memory itu sekarang.',
     ephemeral: true,
   });
 }

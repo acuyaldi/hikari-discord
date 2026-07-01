@@ -3,7 +3,7 @@ import type { CommandContext } from '../types';
 
 export const data = new SlashCommandBuilder()
   .setName('switch')
-  .setDescription('Pilih otak Hikari')
+  .setDescription('Pilih engine Hikari')
   .addStringOption((o) =>
     o
       .setName('engine')
@@ -27,7 +27,7 @@ export async function execute(
   if (userRow) {
     db.prepare('UPDATE user_memories SET engine_pref = ? WHERE user_id = ?').run(engine, userId);
   } else {
-    db.prepare('INSERT INTO user_memories (user_id, nickname, engine_pref) VALUES (?, ?, ?)').run(userId, 'Senpai', engine);
+    db.prepare('INSERT INTO user_memories (user_id, nickname, engine_pref) VALUES (?, ?, ?)').run(userId, 'teman', engine);
   }
-  await interaction.reply(`✨ **Mode Switch:** Hikari sekarang menggunakan otak **${engine.toUpperCase()}**!`);
+  await interaction.reply(`Sip. Sekarang aku pakai engine **${engine.toUpperCase()}**.`);
 }

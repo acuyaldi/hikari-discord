@@ -123,7 +123,7 @@ export async function execute(
   const selectedMode = interaction.options.getString('mode') ?? 'standar';
 
   if (!fileAttachment && (!inputUrl || inputUrl.trim() === '')) {
-    await interaction.reply({ content: '💢 **Nani?!** Masukkan dokumen atau tautan dulu dong, Senpai!', ephemeral: true });
+    await interaction.reply({ content: 'Masukkan dokumen atau tautan dulu. Aku jago analisis, bukan jago cenayang.', ephemeral: true });
     return;
   }
 
@@ -222,7 +222,7 @@ export async function execute(
       engineUsed = describeAnalyzeEngine('standar', response.providerUsed, response.providerUsed !== AIProviderName.GEMINI);
     }
 
-    const replyHeader = `📂 **Sirkuit Analisis Sukses!**\n> **Engine:** \`${engineUsed}\`\n${sourceInfo}\n\n`;
+    const replyHeader = `📂 **Analisis beres.**\n> **Engine:** \`${engineUsed}\`\n${sourceInfo}\n> **Status:** Tidak meledak. Bagus.\n\n`;
     const replyChunks = splitMessage(`${replyHeader}${resultText}`);
     console.log(
       `[Analyze] success engine=${engineUsed} replyChars=${resultText.length} chunks=${replyChunks.length}`,
@@ -233,6 +233,6 @@ export async function execute(
     }
   } catch (error) {
     console.error('[Analyze] failed:', error);
-    await interaction.editReply('Gomennasai Senpai... Sirkuit otak Hikari gagal menganalisis data tersebut. 🥺💢');
+    await interaction.editReply('Yah, analisisnya gagal. Ada yang nyangkut di belakang layar, seperti biasa pas lagi butuh-butuhnya. Coba lagi bentar lagi.');
   }
 }

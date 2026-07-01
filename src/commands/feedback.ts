@@ -3,7 +3,7 @@ import type { CommandContext } from '../types';
 
 export const data = new SlashCommandBuilder()
   .setName('feedback')
-  .setDescription('🧠 Ajari/koreksi Hikari secara instan! Hikari akan langsung mengingat aturan baru ini! ✨')
+  .setDescription('Kasih aturan atau koreksi baru buat Hikari')
   .addStringOption((option) =>
     option
       .setName('catatan')
@@ -21,9 +21,9 @@ export async function execute(
   if (userRow) {
     db.prepare('UPDATE user_memories SET feedback_notes = ? WHERE user_id = ?').run(catatanBaru, userId);
   } else {
-    db.prepare('INSERT INTO user_memories (user_id, nickname, feedback_notes) VALUES (?, ?, ?)').run(userId, 'Senpai', catatanBaru);
+    db.prepare('INSERT INTO user_memories (user_id, nickname, feedback_notes) VALUES (?, ?, ?)').run(userId, 'teman', catatanBaru);
   }
   await interaction.reply(
-    `🧠 **Sirkuit Pembelajaran Berhasil di-Update!** Hikari sudah mengunci aturan baru dari Senpai:\n> *"${catatanBaru}"*\nHikari akan langsung mematuhinya di chat berikutnya! Sugoi! 🚀✨`,
+    `🧠 **Catatan baru masuk.** Aku simpan aturan ini:\n> *"${catatanBaru}"*\nSip, mulai chat berikutnya aku ikuti.`,
   );
 }

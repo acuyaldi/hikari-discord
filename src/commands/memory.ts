@@ -9,11 +9,11 @@ const DISCORD_SAFE_CONTENT_LIMIT = 1_900;
 
 export const data = new SlashCommandBuilder()
   .setName('memory')
-  .setDescription('Lihat memory yang Hikari simpan tentang kamu')
+  .setDescription('Lihat memory yang kusimpan tentang kamu')
   .addSubcommand((subcommand) =>
     subcommand
       .setName('list')
-      .setDescription('Lihat daftar memory yang Hikari simpan tentang kamu di server ini'),
+      .setDescription('Lihat daftar memory yang kusimpan tentang kamu di server ini'),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -41,12 +41,12 @@ export function formatMemoryReply(memories: MemoryRow[]): string {
   const footer = memories.length > visible.length
     ? `\n\nMenampilkan ${visible.length} dari ${memories.length} memory.`
     : '';
-  const content = `**Memory Hikari tentang kamu**\n\n${lines.join('\n')}${footer}`;
+  const content = `**Memory yang kusimpan tentang kamu**\n\n${lines.join('\n')}${footer}`;
 
   if (content.length <= DISCORD_SAFE_CONTENT_LIMIT) return content;
 
   const trimmedLines: string[] = [];
-  let current = '**Memory Hikari tentang kamu**\n\n';
+  let current = '**Memory yang kusimpan tentang kamu**\n\n';
 
   for (const line of lines) {
     const next = `${current}${line}\n`;
@@ -55,7 +55,7 @@ export function formatMemoryReply(memories: MemoryRow[]): string {
     current = next;
   }
 
-  return `**Memory Hikari tentang kamu**\n\n${trimmedLines.join('\n')}${footer}`;
+  return `**Memory yang kusimpan tentang kamu**\n\n${trimmedLines.join('\n')}${footer}`;
 }
 
 function average(values: number[]): number {
@@ -88,7 +88,7 @@ export function formatMemoryStatsReply(memories: MemoryRow[]): string {
   const oldestCreated = Math.min(...memories.map((memory) => memory.created_at));
 
   return [
-    '**Statistik Memory Hikari**',
+    '**Statistik memory kamu**',
     '',
     `Total memory: ${memories.length}`,
     `Category: ${formatBreakdown(categories)}`,
@@ -116,7 +116,7 @@ export async function execute(
 
   if (!result.success) {
     await interaction.reply({
-      content: 'Gomen, Hikari belum bisa membuka memory kamu sekarang.',
+      content: 'Aku belum bisa membuka memory kamu sekarang.',
       ephemeral: true,
     });
     return;

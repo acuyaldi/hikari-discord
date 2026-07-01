@@ -146,7 +146,7 @@ export class ProviderManager {
           return {
             replyText: '',
             providerUsed: name,
-            earlyReply: 'Gomennasai Senpai... Sirkuit pembaca gambar Gemini sedang kelelahan! 🥺💢',
+            earlyReply: 'Pembaca gambarku lagi rewel. Coba lagi sebentar atau kirim gambar lain.',
           };
         }
       }

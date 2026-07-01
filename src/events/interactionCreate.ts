@@ -4,8 +4,8 @@ import { checkCooldown } from '../utils/cooldown';
 import type { Command } from '../types';
 
 const AI_COOLDOWN_COMMANDS = new Set(['analyze', 'draw']);
-const COOLDOWN_REPLY = 'Sebentar ya Senpai, Hikari masih memproses permintaanmu yang sebelumnya.';
-const COMMAND_ERROR_REPLY = 'Gomennasai Senpai... Perintah itu gagal diproses barusan. Coba lagi ya.';
+const COOLDOWN_REPLY = 'Tunggu sebentar. Aku masih ngerjain permintaanmu yang tadi, dan sayangnya aku belum bisa clone diri.';
+const COMMAND_ERROR_REPLY = 'Yah, perintah itu gagal diproses barusan. Agak nyebelin, iya. Coba lagi ya.';
 
 function isUnknownInteractionError(error: unknown): boolean {
   return typeof error === 'object'

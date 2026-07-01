@@ -109,7 +109,7 @@ test('/memory shows only the current guild memory with useful metadata and a saf
 
     assert.equal(typeof reply, 'object');
     assert.equal((reply as InteractionReplyOptions).ephemeral, true);
-    assert.match(content, /\*\*Memory Hikari tentang kamu\*\*/);
+    assert.match(content, /\*\*Memory yang kusimpan tentang kamu\*\*/);
     assert.match(content, /guild current memory 16/);
     assert.match(content, /hardware|profile/);
     assert.match(content, /importance: 66/);
@@ -177,7 +177,7 @@ test('/memory stats summarizes only the current user and guild memory', async ()
 
     assert.equal(typeof reply, 'object');
     assert.equal((reply as InteractionReplyOptions).ephemeral, true);
-    assert.match(content, /\*\*Statistik Memory Hikari\*\*/);
+    assert.match(content, /\*\*Statistik memory kamu\*\*/);
     assert.match(content, /Total memory: 2/);
     assert.match(content, /hardware: 1/);
     assert.match(content, /profile: 1/);

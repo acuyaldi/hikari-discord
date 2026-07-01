@@ -84,7 +84,7 @@ test('/forget deletes a single clear text match ephemerally', async () => {
     const reply = mock.getReply();
     assert.equal(typeof reply, 'object');
     assert.equal((reply as InteractionReplyOptions).ephemeral, true);
-    assert.match(replyContent(reply), /sudah Hikari hapus/i);
+    assert.match(replyContent(reply), /sudah aku hapus/i);
 
     const memories = memoryService.listMemories('user-1');
     assert.equal(memories.success, true);

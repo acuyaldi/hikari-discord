@@ -77,7 +77,7 @@ test('/remember saves manual memory for the current user and guild', async () =>
     const reply = mock.getReply();
     assert.equal(typeof reply, 'object');
     assert.equal((reply as InteractionReplyOptions).ephemeral, true);
-    assert.match(replyContent(reply), /sudah Hikari simpan/i);
+    assert.match(replyContent(reply), /sudah kusimpan/i);
 
     const memories = memoryService.listMemories('user-1', 'other');
     assert.equal(memories.success, true);

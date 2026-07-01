@@ -9,7 +9,7 @@ const MAX_CANDIDATES_SHOWN = 5;
 
 export const data = new SlashCommandBuilder()
   .setName('forget')
-  .setDescription('Minta Hikari menghapus memory tentang kamu')
+  .setDescription('Hapus memory yang Hikari simpan tentang kamu')
   .addStringOption((option) =>
     option
       .setName('query')
@@ -73,7 +73,7 @@ export async function execute(
 
   if (!memoriesResult.success) {
     await interaction.reply({
-      content: 'Gomen, Hikari belum bisa membuka daftar memory kamu sekarang.',
+      content: 'Aku belum bisa membuka daftar memory kamu sekarang.',
       ephemeral: true,
     });
     return;
@@ -84,7 +84,7 @@ export async function execute(
 
   if (matches.length === 0) {
     await interaction.reply({
-      content: 'Hikari tidak menemukan memory yang cocok di server ini.',
+      content: 'Aku tidak menemukan memory yang cocok di server ini.',
       ephemeral: true,
     });
     return;
@@ -93,7 +93,7 @@ export async function execute(
   if (matches.length > 1) {
     await interaction.reply({
       content:
-        'Hikari menemukan beberapa memory yang cocok. Tolong lebih spesifik:\n\n' +
+        'Aku menemukan beberapa memory yang mirip. Coba lebih spesifik:\n\n' +
         matches.slice(0, MAX_CANDIDATES_SHOWN).map(formatCandidate).join('\n'),
       ephemeral: true,
     });
@@ -105,8 +105,8 @@ export async function execute(
 
   await interaction.reply({
     content: deleteResult.success
-      ? `Oke, memory #${target.id} sudah Hikari hapus.`
-      : 'Gomen, Hikari belum bisa menghapus memory itu sekarang.',
+      ? `Sip, memory #${target.id} sudah aku hapus.`
+      : 'Aku belum bisa menghapus memory itu sekarang.',
     ephemeral: true,
   });
 }

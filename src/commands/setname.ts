@@ -3,7 +3,7 @@ import type { CommandContext } from '../types';
 
 export const data = new SlashCommandBuilder()
   .setName('setname')
-  .setDescription('Beri tahu Hikari nama panggilan kesukaanmu 🥰')
+  .setDescription('Atur nama panggilanmu')
   .addStringOption((option) =>
     option.setName('nama').setDescription('Masukkan nama panggilan').setRequired(true),
   );
@@ -20,5 +20,5 @@ export async function execute(
   } else {
     db.prepare('INSERT INTO user_memories (user_id, nickname, feedback_notes) VALUES (?, ?, ?)').run(userId, inputName, '');
   }
-  await interaction.reply(`🌸 **Uwooo!** Mulai sekarang Hikari akan memanggilmu **"${inputName}"**! ✨🥰`);
+  await interaction.reply(`Sip. Mulai sekarang aku akan manggil kamu **"${inputName}"**.`);
 }
