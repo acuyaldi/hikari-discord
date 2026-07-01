@@ -30,7 +30,7 @@ export class GroqProvider implements AIProvider {
             content: `Rangkum poin penting obrolan ini menjadi 3 kalimat:\n\n${coreTexts}`,
           },
         ],
-        model: 'llama-3.1-8b-instant',
+        model: 'openai/gpt-oss-20b',
       });
       history.splice(1, 14, {
         role: 'system',
@@ -40,7 +40,7 @@ export class GroqProvider implements AIProvider {
 
     const groqResponse = await groq.chat.completions.create({
       messages: history,
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-20b',
       temperature: 0.9,
     });
     const replyText = groqResponse.choices[0].message.content ?? '';

@@ -78,7 +78,7 @@ export class GeminiProvider implements AIProvider {
             content: `Rangkum poin-poin penting, sejarah emosi, dan inti dari obrolan ini menjadi 3 kalimat padat:\n\n${coreTexts}`,
           },
         ],
-        model: 'llama-3.1-8b-instant',
+        model: 'openai/gpt-oss-20b',
       });
       groqHistory.splice(1, 14, {
         role: 'system',

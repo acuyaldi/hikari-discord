@@ -81,13 +81,13 @@ export async function execute(
     let engineUsed = '';
 
     if (selectedMode === 'mendalam') {
-      engineUsed = 'Groq Llama-3.3 70B 🔥 (Deep Analysis Mode)';
+      engineUsed = 'Groq GPT-OSS 120B 🔥 (Deep Analysis Mode)';
       const groqResponse = await groq.chat.completions.create({
         messages: [
           { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
           { role: 'user', content: analysisPrompt },
         ],
-        model: 'llama-3.3-70b-specdec',
+        model: 'openai/gpt-oss-120b',
         temperature: 0.5,
       });
       resultText = groqResponse.choices[0].message.content ?? '';
@@ -101,13 +101,13 @@ export async function execute(
         });
         resultText = aiResponse.text ?? '';
       } catch {
-        engineUsed = 'Groq Llama-3.1 🚀 (Standar Mode - Fallback)';
+        engineUsed = 'Groq GPT-OSS 20B 🚀 (Standar Mode - Fallback)';
         const groqResponse = await groq.chat.completions.create({
           messages: [
             { role: 'system', content: dynamicSystemInstruction },
             { role: 'user', content: analysisPrompt },
           ],
-          model: 'llama-3.1-8b-instant',
+          model: 'openai/gpt-oss-20b',
           temperature: 0.7,
         });
         resultText = groqResponse.choices[0].message.content ?? '';
