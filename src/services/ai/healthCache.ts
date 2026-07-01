@@ -1,3 +1,5 @@
+import { DEBUG_AI } from '../../config/env';
+
 export type ProviderHealthStatus = 'healthy' | 'degraded' | 'cooldown' | 'unknown';
 
 export interface ProviderHealthState {
@@ -15,7 +17,7 @@ export interface ProviderHealthState {
 }
 
 const healthStates = new Map<string, ProviderHealthState>();
-const DEBUG = process.env.DEBUG_AI === 'true';
+const DEBUG = DEBUG_AI;
 
 function defaultState(target: string): ProviderHealthState {
   return {

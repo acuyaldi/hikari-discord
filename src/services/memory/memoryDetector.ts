@@ -1,4 +1,5 @@
 import ai from '../../ai/gemini';
+import { DEBUG_MEMORY, MEMORY_DETECTOR_MODEL } from '../../config/env';
 import type { MemoryCategory } from './types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -33,11 +34,11 @@ export type MemoryDecision =
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 /** Cheapest Gemini model sufficient for JSON classification. */
-const MODEL = 'gemini-2.0-flash-lite';
+const MODEL = MEMORY_DETECTOR_MODEL;
 
 const IGNORE: MemoryDecision = { action: 'ignore' };
 
-const DEBUG = process.env.DEBUG_MEMORY === 'true';
+const DEBUG = DEBUG_MEMORY;
 
 const MIN_LENGTH = 15;
 

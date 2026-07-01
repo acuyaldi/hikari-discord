@@ -1,33 +1,7 @@
+import { DEBUG_MEMORY } from '../../config/env';
 import type { DetectionResult, MemoryCandidate } from './types';
 
-const DEBUG = process.env.DEBUG_MEMORY === 'true';
-
-/** Logs the detector result when DEBUG_MEMORY=true. */
-export function logDetection(result: DetectionResult): void {
-  if (!DEBUG) return;
-
-  if (!result.shouldRemember) {
-    console.log('[Memory Detector]\nShould Remember: false');
-    return;
-  }
-
-  console.log(
-    `[Memory Detector]\n` +
-      `Should Remember: true\n` +
-      `Category: ${result.category}\n` +
-      `Importance: ${result.importance}\n` +
-      `Confidence: ${result.confidence}\n` +
-      `Memory:\n${result.memory}`,
-  );
-}
-
-/** Logs retrieved memories when DEBUG_MEMORY=true. */
-export function logRetrieval(memories: string[]): void {
-  if (!DEBUG || memories.length === 0) return;
-
-  const list = memories.map((m) => `- ${m}`).join('\n');
-  console.log(`[Memory Retriever]\nRetrieved Memories:\n${list}`);
-}
+const DEBUG = DEBUG_MEMORY;
 
 /** Logs retrieved candidates with full score breakdown when DEBUG_MEMORY=true. */
 export function logRetrievalWithScores(candidates: MemoryCandidate[]): void {

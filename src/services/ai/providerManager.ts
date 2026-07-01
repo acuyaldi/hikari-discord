@@ -1,6 +1,6 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName, TaskType } from './types';
-import { AI_PROVIDER_ORDER } from '../../config/env';
+import { AI_PROVIDER_ORDER, DEBUG_AI } from '../../config/env';
 import { recordSuccess, recordFailure } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
@@ -14,7 +14,7 @@ import { markCooldown, recordHealthFailure, recordHealthSuccess } from './health
 import { rankTargets } from './providerRanking';
 import { resolveProviderOverride } from './providerOverride';
 
-const DEBUG = process.env.DEBUG_AI === 'true';
+const DEBUG = DEBUG_AI;
 
 const VALID_NAMES = new Set<string>(Object.values(AIProviderName));
 

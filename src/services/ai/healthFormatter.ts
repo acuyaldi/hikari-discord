@@ -1,4 +1,4 @@
-import { OPENROUTER_MODELS } from '../../config/env';
+import { DEBUG_AI, OPENROUTER_MODELS } from '../../config/env';
 import { circuitBreaker } from './circuitBreaker';
 import { getHealth } from './healthCache';
 import type { ProviderHealthState, ProviderHealthStatus } from './healthCache';
@@ -6,7 +6,7 @@ import { scoreHealth } from './providerRanking';
 
 const PROVIDERS = ['gemini', 'groq', 'openrouter'] as const;
 const MAX_ERROR_LENGTH = 80;
-const DEBUG = process.env.DEBUG_AI === 'true';
+const DEBUG = DEBUG_AI;
 
 interface HealthDashboardOptions {
   now?: number;
