@@ -48,6 +48,26 @@ interface BuildSummaryRecentMessagesOptions {
   getTranscript?: typeof getChannelTranscript;
   logSummary?: typeof logSummary;
 }
+const MESSAGE_DEDUPE_TTL_MS = 30_000;
+const REQUEST_FINGERPRINT_TTL_MS = 12_000;
+
+function normalizeMessageContent(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function buildRequestFingerprint(options: {
+  userId: string;
+  channelId: string;
+  normalizedPromptText: string;
+  imageUrl?: string;
+}): string {
+  return [
+    options.userId,
+    options.channelId,
+    options.normalizedPromptText,
+    options.imageUrl ?? '-',
+  ].join('|');
+}
 
 export async function sendReplyWithOptionalVoice({
   userMessageText,
@@ -157,9 +177,17 @@ export function registerMessageCreate(
   const runMemory = dependencies.runMemoryPipeline ?? runMemoryPipeline;
   const buildContext = dependencies.buildMultiUserContext ?? buildMultiUserContext;
   const getTranscript = dependencies.getChannelTranscript ?? getChannelTranscript;
+  const processedMessageIds = new Set<string>();
+  const inFlightRequestFingerprints = new Set<string>();
+  const recentRequestFingerprints = new Map<string, number>();
 
   client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+
+    if (processedMessageIds.has(message.id)) return;
+    processedMessageIds.add(message.id);
+    setTimeout(() => processedMessageIds.delete(message.id), MESSAGE_DEDUPE_TTL_MS);
+
     const botUser = client.user!;
     const botUserId = botUser.id;
     if (!message.mentions.has(botUser) && message.channel.id !== SPESIFIK_CHANNEL_ID) {
@@ -199,6 +227,25 @@ export function registerMessageCreate(
       return;
     }
     if (!promptText && hasImage) promptText = 'Jelaskan gambar ini secara detail dan kreatif.';
+
+    const requestFingerprint = buildRequestFingerprint({
+      userId,
+      channelId,
+      normalizedPromptText: normalizeMessageContent(promptText),
+      imageUrl: imageAttachment?.url,
+    });
+
+    if (inFlightRequestFingerprints.has(requestFingerprint)) return;
+
+    const lastProcessedAt = recentRequestFingerprints.get(requestFingerprint);
+    if (
+      lastProcessedAt !== undefined &&
+      Date.now() - lastProcessedAt <= REQUEST_FINGERPRINT_TTL_MS
+    ) {
+      return;
+    }
+
+    inFlightRequestFingerprints.add(requestFingerprint);
 
     try {
       await message.channel.sendTyping();
@@ -278,6 +325,13 @@ export function registerMessageCreate(
       });
     } catch (error) {
       await message.reply('Yah, aku lagi error sebentar. Mesin pikirnya batuk kecil. Coba kirim lagi pesanmu.');
+    } finally {
+      inFlightRequestFingerprints.delete(requestFingerprint);
+      recentRequestFingerprints.set(requestFingerprint, Date.now());
+      setTimeout(
+        () => recentRequestFingerprints.delete(requestFingerprint),
+        REQUEST_FINGERPRINT_TTL_MS,
+      );
     }
   });
 }

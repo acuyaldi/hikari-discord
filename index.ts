@@ -17,6 +17,7 @@ import * as aiProviderCmd from './src/commands/aiProvider';
 import * as memoryCmd from './src/commands/memory';
 import * as rememberCmd from './src/commands/remember';
 import * as forgetCmd from './src/commands/forget';
+import * as werewolfCmd from './src/commands/werewolf';
 
 const client = new Client({
   intents: [
@@ -40,6 +41,7 @@ const commands: Command[] = [
   memoryCmd,
   rememberCmd,
   forgetCmd,
+  werewolfCmd,
 ];
 
 registerEvents(client, commands);

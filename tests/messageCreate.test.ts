@@ -187,3 +187,76 @@ test('registerMessageCreate falls back to a single user message when transcript 
 
   assert.deepEqual(summaryInputs[0]?.recentMessages, ['tolong rangkum ini']);
 });
+
+test('registerMessageCreate ignores duplicate delivery of the same message id', async () => {
+  const harness = createClientHarness();
+  let chatCalls = 0;
+  const replies: Array<string | { content: string }> = [];
+  const message = createMessage({
+    reply: async (payload: string | { content: string }) => {
+      replies.push(payload);
+      return payload;
+    },
+  });
+
+  registerMessageCreate(harness.client as never, {
+    checkCooldown: () => false,
+    buildMultiUserContext: async () => multiUserContextResult(),
+    chat: async () => {
+      chatCalls += 1;
+      return {
+        replyText: 'sekali aja',
+        engineIndicator: '',
+      };
+    },
+    runMemoryPipeline: async () => undefined,
+    maybeRunSummaryPipeline: () => undefined,
+  });
+
+  await harness.dispatch(message as never);
+  await harness.dispatch(message as never);
+
+  assert.equal(chatCalls, 1);
+  assert.equal(replies.length, 1);
+});
+
+test('registerMessageCreate ignores rapid duplicate prompt with different message ids', async () => {
+  const harness = createClientHarness();
+  let chatCalls = 0;
+  const replies: Array<string | { content: string }> = [];
+
+  registerMessageCreate(harness.client as never, {
+    checkCooldown: () => false,
+    buildMultiUserContext: async () => multiUserContextResult(),
+    chat: async () => {
+      chatCalls += 1;
+      return {
+        replyText: 'cukup sekali',
+        engineIndicator: '',
+      };
+    },
+    runMemoryPipeline: async () => undefined,
+    maybeRunSummaryPipeline: () => undefined,
+  });
+
+  const first = createMessage({
+    id: 'message-1',
+    reply: async (payload: string | { content: string }) => {
+      replies.push(payload);
+      return payload;
+    },
+  });
+  const second = createMessage({
+    id: 'message-2',
+    reply: async (payload: string | { content: string }) => {
+      replies.push(payload);
+      return payload;
+    },
+  });
+
+  await harness.dispatch(first as never);
+  await harness.dispatch(second as never);
+
+  assert.equal(chatCalls, 1);
+  assert.equal(replies.length, 1);
+});
