@@ -73,6 +73,46 @@ db.prepare(`
   ON conversation_summary(user_id)
 `).run();
 
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS ww_games (
+    guild_id                TEXT PRIMARY KEY,
+    channel_id              TEXT NOT NULL,
+    host_user_id            TEXT NOT NULL,
+    phase                   TEXT NOT NULL,
+    message_id              TEXT,
+    day_message_id          TEXT,
+    phase_started_at        INTEGER,
+    registration_started_at INTEGER,
+    created_at              INTEGER NOT NULL,
+    updated_at              INTEGER NOT NULL
+  )
+`).run();
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS ww_players (
+    guild_id               TEXT NOT NULL,
+    user_id                TEXT NOT NULL,
+    role                   TEXT NOT NULL DEFAULT 'villager',
+    is_alive               INTEGER NOT NULL DEFAULT 1,
+    voted_for              TEXT,
+    dm_channel_id          TEXT,
+    night_target_user_id   TEXT,
+    last_action_at         INTEGER,
+    joined_at              INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_ww_players_guild
+  ON ww_players(guild_id)
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_ww_players_role
+  ON ww_players(guild_id, role, is_alive)
+`).run();
+
 db.pragma(`user_version = ${SCHEMA_VERSION}`);
 
 export default db;

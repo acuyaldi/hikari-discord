@@ -1,6 +1,7 @@
 import { Client } from 'discord.js';
 import db from '../database/sqlite';
 import { checkCooldown } from '../utils/cooldown';
+import { handleWerewolfComponentInteraction } from '../services/werewolf/game';
 import type { Command } from '../types';
 
 const AI_COOLDOWN_COMMANDS = new Set(['analyze', 'draw']);
@@ -62,6 +63,23 @@ async function safeInteractionErrorReply(interaction: {
 
 export function registerInteractionCreate(client: Client, allCommands: Command[]): void {
   client.on('interactionCreate', async (interaction) => {
+    const isButtonInteraction = typeof interaction.isButton === 'function' && interaction.isButton();
+    const isStringSelectInteraction =
+      typeof interaction.isStringSelectMenu === 'function' && interaction.isStringSelectMenu();
+
+    if (isButtonInteraction || isStringSelectInteraction) {
+      try {
+        const handled = await handleWerewolfComponentInteraction(interaction, db);
+        if (handled) return;
+      } catch (error) {
+        console.error('[InteractionCreate] component failed:', error);
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: COMMAND_ERROR_REPLY, ephemeral: true }).catch(() => undefined);
+        }
+        return;
+      }
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const interactionAgeMs = Date.now() - interaction.createdTimestamp;

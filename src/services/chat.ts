@@ -12,6 +12,21 @@ import type { ChatRequest } from './ai/types';
 import type { ChatMessage } from './context/contextBuilder';
 import type { UserRow } from '../types';
 
+function preferredProvidersForEngine(
+  enginePref: string | null | undefined,
+): AIProviderName[] | undefined {
+  switch (enginePref) {
+    case AIProviderName.GEMINI:
+      return [AIProviderName.GEMINI, AIProviderName.OPENROUTER, AIProviderName.GROQ];
+    case AIProviderName.GROQ:
+      return [AIProviderName.GROQ, AIProviderName.GEMINI, AIProviderName.OPENROUTER];
+    case AIProviderName.OPENROUTER:
+      return [AIProviderName.OPENROUTER, AIProviderName.GEMINI, AIProviderName.GROQ];
+    default:
+      return undefined;
+  }
+}
+
 export interface ChatOptions {
   userId: string;
   guildId: string | null;
@@ -117,6 +132,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     hasImage,
     imageUrl,
     taskType,
+    preferredProviders: preferredProvidersForEngine(enginePref),
   };
 
   const response = await providerManager.generate(chatRequest);
@@ -126,15 +142,6 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
   }
 
   replyText = response.replyText;
-
-  const fallbackLabels: Partial<Record<AIProviderName, string>> = {
-    [AIProviderName.GROQ]: 'Groq GPT-OSS 20B',
-    [AIProviderName.OPENROUTER]: 'OpenRouter',
-  };
-  const fallbackLabel = fallbackLabels[response.providerUsed];
-  if (fallbackLabel) {
-    engineIndicator = `\n\n*(⚡ Lagi pakai cadangan: ${fallbackLabel})*`;
-  }
 
   return { replyText, engineIndicator };
 }
