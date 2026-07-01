@@ -113,6 +113,20 @@ db.prepare(`
   ON ww_players(guild_id, role, is_alive)
 `).run();
 
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS trivia_scores (
+    guild_id TEXT NOT NULL,
+    user_id  TEXT NOT NULL,
+    points   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id)
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_trivia_scores_guild_points
+  ON trivia_scores(guild_id, points DESC)
+`).run();
+
 db.pragma(`user_version = ${SCHEMA_VERSION}`);
 
 export default db;

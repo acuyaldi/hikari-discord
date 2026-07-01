@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "kategori": "Geografi",
+    "soal": "Apa nama ibu kota dari negara Australia?",
+    "pilihan": ["A. Sydney", "B. Canberra", "C. Melbourne", "D. Brisbane"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 2,
+    "kategori": "Sains",
+    "soal": "Planet manakah di tata surya kita yang dijuluki sebagai Planet Merah?",
+    "pilihan": ["A. Mars", "B. Venus", "C. Jupiter", "D. Saturnus"],
+    "jawaban_benar": "A"
+  },
+  {
+    "id": 3,
+    "kategori": "Sejarah",
+    "soal": "Siapakah tokoh dunia yang mempatenkan penemuan lampu pijar komersial?",
+    "pilihan": ["A. Nikola Tesla", "B. Albert Einstein", "C. Thomas Alva Edison", "D. Alexander Graham Bell"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 4,
+    "kategori": "Geografi",
+    "soal": "Benua manakah yang memiliki luas wilayah terbesar di dunia?",
+    "pilihan": ["A. Afrika", "B. Asia", "C. Amerika Utara", "D. Eropa"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 5,
+    "kategori": "Sains",
+    "soal": "Apakah lambang unsur kimia untuk unsur Air di tabel periodik?",
+    "pilihan": ["A. CO2", "B. O2", "C. H2O", "D. NaCl"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 6,
+    "kategori": "Sejarah",
+    "soal": "Siapakah komposer yang menciptakan lagu kebangsaan Indonesia Raya?",
+    "pilihan": ["A. Ismail Marzuki", "B. Ibu Soed", "C. Kusbini", "D. W.R. Soepratman"],
+    "jawaban_benar": "D"
+  },
+  {
+    "id": 7,
+    "kategori": "Matematika",
+    "soal": "Berapakah total sudut yang dimiliki oleh sebuah segitiga siku-siku?",
+    "pilihan": ["A. 90 Derajat", "B. 180 Derajat", "C. 360 Derajat", "D. 45 Derajat"],
+    "jawaban_benar": "A"
+  },
+  {
+    "id": 8,
+    "kategori": "Sains",
+    "soal": "Hewan mamalia terbesar yang masih hidup di bumi saat ini adalah...",
+    "pilihan": ["A. Gajah Afrika", "B. Hiu Megalodon", "C. Paus Biru", "D. Badak Jawa"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 9,
+    "kategori": "Ekonomi",
+    "soal": "Apa nama mata uang resmi yang digunakan oleh negara Jepang?",
+    "pilihan": ["A. Won", "B. Yuan", "C. Yen", "D. Ringgit"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 10,
+    "kategori": "Umum",
+    "soal": "Monumen Nasional (Monas) yang ikonik terletak di kota mana?",
+    "pilihan": ["A. Bandung", "B. Surabaya", "C. Yogyakarta", "D. Jakarta"],
+    "jawaban_benar": "D"
+  }
+]

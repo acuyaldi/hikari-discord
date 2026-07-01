@@ -18,6 +18,8 @@ import * as memoryCmd from './src/commands/memory';
 import * as rememberCmd from './src/commands/remember';
 import * as forgetCmd from './src/commands/forget';
 import * as werewolfCmd from './src/commands/werewolf';
+import * as triviaCmd from './src/commands/trivia';
+import * as triviaLeaderboardCmd from './src/commands/triviaLeaderboard';
 
 const client = new Client({
   intents: [
@@ -42,6 +44,8 @@ const commands: Command[] = [
   rememberCmd,
   forgetCmd,
   werewolfCmd,
+  triviaCmd,
+  triviaLeaderboardCmd,
 ];
 
 registerEvents(client, commands);
