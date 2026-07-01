@@ -9,7 +9,7 @@ import type {
   ToolResult,
 } from './types';
 
-const FALLBACK_MESSAGE =
+export const TOOL_LOOP_FALLBACK_MESSAGE =
   'Tool loop was unable to finish cleanly or reached the iteration limit, so here is the best available response.';
 
 export interface RunWithToolsOptions<TState, TRawResponse> {
@@ -22,7 +22,7 @@ export interface RunWithToolsOptions<TState, TRawResponse> {
 }
 
 function finalText(bestText: string | null): string {
-  return bestText?.trim() ? bestText : FALLBACK_MESSAGE;
+  return bestText?.trim() ? bestText : TOOL_LOOP_FALLBACK_MESSAGE;
 }
 
 export async function runWithTools<TState, TRawResponse>(

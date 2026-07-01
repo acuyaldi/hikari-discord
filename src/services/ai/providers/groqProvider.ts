@@ -2,6 +2,11 @@ import groq from '../../../ai/groq';
 import { getGroqHistory } from '../../chatMemory';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
+import {
+  TOOL_LOOP_FALLBACK_MESSAGE,
+  runWithTools,
+} from '../../tools/toolExecutionLoop';
+import { openAICompatibleToolAdapter } from '../../tools/providerAdapters/openaiCompatibleToolAdapter';
 
 export class GroqProvider implements AIProvider {
   readonly name = AIProviderName.GROQ;
@@ -38,6 +43,12 @@ export class GroqProvider implements AIProvider {
       });
     }
 
+    const toolReply = await this.generateWithTools(request, history.map((message) => ({ ...message })));
+    if (toolReply !== null) {
+      history.push({ role: 'assistant', content: toolReply });
+      return { replyText: toolReply, providerUsed: AIProviderName.GROQ };
+    }
+
     const groqResponse = await groq.chat.completions.create({
       messages: history,
       model: 'openai/gpt-oss-20b',
@@ -47,5 +58,26 @@ export class GroqProvider implements AIProvider {
     history.push({ role: 'assistant', content: replyText });
 
     return { replyText, providerUsed: AIProviderName.GROQ };
+  }
+
+  private async generateWithTools(
+    request: ChatRequest,
+    messages: Array<Record<string, unknown>>,
+  ): Promise<string | null> {
+    if (!request.tools || request.tools.length === 0 || request.hasImage) return null;
+
+    const replyText = await runWithTools({
+      initialState: { messages },
+      providerCall: (state) => groq.chat.completions.create({
+        messages: state.messages as never,
+        model: 'openai/gpt-oss-20b',
+        temperature: 0.9,
+        tools: state.tools as never,
+      }),
+      adapter: openAICompatibleToolAdapter,
+      toolDefinitions: request.tools,
+    });
+
+    return replyText === TOOL_LOOP_FALLBACK_MESSAGE ? null : replyText;
   }
 }
