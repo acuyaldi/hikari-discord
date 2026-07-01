@@ -22,6 +22,7 @@ interface MockButtonInteraction {
   user: { id: string };
   message: { id: string };
   reply: (payload: { content: string; ephemeral: boolean }) => Promise<void>;
+  deferUpdate: () => Promise<void>;
 }
 
 function createTriviaScoresTable(db: Database.Database): void {
@@ -110,6 +111,9 @@ function createButton(
     reply: async (payload) => {
       replies.push(payload);
     },
+    deferUpdate: async () => {
+      replies.push({ deferred: true });
+    },
   };
 }
 
@@ -133,6 +137,7 @@ test('trivia awards +10 points to the first correct answer', async () => {
   const buttonReplies: Array<unknown> = [];
   await new Promise((resolve) => setImmediate(resolve));
   await harness.emitCollect(createButton('trivia_A', 'user-1', buttonReplies, 'trivia-channel-1'));
+  await harness.emitEnd('time');
   await new Promise((resolve) => setImmediate(resolve));
 
   const score = db
@@ -140,7 +145,7 @@ test('trivia awards +10 points to the first correct answer', async () => {
     .get('guild-1', 'user-1') as { points: number } | undefined;
 
   assert.equal(score?.points, 10);
-  assert.equal(harness.followUps.length >= 1, true);
+  assert.equal(harness.followUps.length, 0);
 
   db.close();
 });
@@ -165,9 +170,14 @@ test('trivia rejects second click from the same user', async () => {
   await new Promise((resolve) => setImmediate(resolve));
   await harness.emitCollect(createButton('trivia_A', 'user-2', userReplies, 'trivia-channel-1'));
   await harness.emitCollect(createButton('trivia_B', 'user-2', userReplies, 'trivia-channel-1'));
+  await harness.emitEnd('time');
 
-  const secondReply = userReplies[1] as { content?: string } | undefined;
-  assert.equal(secondReply?.content, 'Kamu sudah mengunci jawabanmu!');
+  const score = db
+    .prepare('SELECT points FROM trivia_scores WHERE guild_id = ? AND user_id = ?')
+    .get('guild-1', 'user-2') as { points: number } | undefined;
+
+  assert.equal(score?.points, -5);
+  assert.equal(userReplies.length, 2);
 
   db.close();
 });
@@ -191,10 +201,8 @@ test('trivia timeout shows correct answer follow-up', async () => {
   await new Promise((resolve) => setImmediate(resolve));
   await harness.emitEnd('time');
 
-  const followUpContents = harness.followUps
-    .map((payload) => (payload as { content?: string } | undefined)?.content ?? '')
-    .join('\n');
-  assert.match(followUpContents, /Ronde 1\/1 habis waktu\. Jawaban benar: \*\*D\*\*/);
+  assert.equal(harness.followUps.length, 0);
+  assert.equal(harness.editReplyPayloads.length > 1, true);
 
   db.close();
 });
@@ -274,5 +282,69 @@ test('trivia collector ignores non-trivia or foreign-message interactions', asyn
   assert.equal(score, undefined);
   assert.equal(replies.length, 0);
   await harness.emitEnd('time');
+  db.close();
+});
+
+test('trivia gives points to all users who lock correct answer', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+
+  const harness = createHarness();
+  await executeTrivia(harness.interaction as never, { db } as never, {
+    questionCount: 1,
+    generateQuestion: async () => ({
+      kategori: 'Matematika',
+      soal: 'Berapa hasil 2+2?',
+      pilihan: ['A. 3', 'B. 4', 'C. 5', 'D. 6'],
+      jawaban_benar: 'B',
+    }),
+  });
+
+  const repliesA: Array<unknown> = [];
+  const repliesB: Array<unknown> = [];
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.emitCollect(createButton('trivia_B', 'user-a', repliesA, 'trivia-channel-1'));
+  await harness.emitCollect(createButton('trivia_B', 'user-b', repliesB, 'trivia-channel-1'));
+  await harness.emitEnd('time');
+
+  const scoreA = db
+    .prepare('SELECT points FROM trivia_scores WHERE guild_id = ? AND user_id = ?')
+    .get('guild-1', 'user-a') as { points: number } | undefined;
+  const scoreB = db
+    .prepare('SELECT points FROM trivia_scores WHERE guild_id = ? AND user_id = ?')
+    .get('guild-1', 'user-b') as { points: number } | undefined;
+
+  assert.equal(scoreA?.points, 10);
+  assert.equal(scoreB?.points, 10);
+  db.close();
+});
+
+test('trivia applies minus points to wrong locked answer', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+
+  const harness = createHarness();
+  await executeTrivia(harness.interaction as never, { db } as never, {
+    questionCount: 1,
+    generateQuestion: async () => ({
+      kategori: 'Sains',
+      soal: 'Gas utama di atmosfer bumi?',
+      pilihan: ['A. Nitrogen', 'B. Oksigen', 'C. Hidrogen', 'D. Helium'],
+      jawaban_benar: 'A',
+    }),
+  });
+
+  const replies: Array<unknown> = [];
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.emitCollect(createButton('trivia_C', 'user-wrong', replies, 'trivia-channel-1'));
+  await harness.emitEnd('time');
+
+  const score = db
+    .prepare('SELECT points FROM trivia_scores WHERE guild_id = ? AND user_id = ?')
+    .get('guild-1', 'user-wrong') as { points: number } | undefined;
+
+  assert.equal(score?.points, -5);
   db.close();
 });

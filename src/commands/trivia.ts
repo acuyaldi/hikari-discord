@@ -28,6 +28,8 @@ interface TriviaRuntimeDependencies {
 
 const ROUND_TIMEOUT_MS = 15_000;
 const DEFAULT_SESSION_QUESTION_COUNT = 5;
+const CORRECT_ANSWER_POINTS = 10;
+const WRONG_ANSWER_POINTS = -5;
 
 const ANSWER_KEYS = ['A', 'B', 'C', 'D'] as const;
 
@@ -216,17 +218,31 @@ function buildQuestionEmbed(
 
 function buildResultEmbed(
   question: TriviaQuestion,
-  options: { winnerId: string | null; timedOut: boolean; roundLabel: string },
+  options: {
+    timedOut: boolean;
+    roundLabel: string;
+    correctUserIds: string[];
+    wrongUserIds: string[];
+  },
 ): EmbedBuilder {
   const endTimeStatus = options.timedOut ? '⏱️ **Waktu Habis!**' : '⏱️ **Ronde Selesai**';
   const embed = buildQuestionEmbed(question, endTimeStatus, options.roundLabel);
 
-  if (options.winnerId) {
+  if (options.correctUserIds.length > 0) {
     embed
       .setColor(0x57f287)
       .setTitle('🏁 Trivia Selesai')
       .setDescription(
-        `Pemenang tercepat: <@${options.winnerId}>\nJawaban benar: **${question.jawaban_benar}**`,
+        [
+          `Jawaban benar: **${question.jawaban_benar}**`,
+          `Benar: ${options.correctUserIds.length} pemain (+${CORRECT_ANSWER_POINTS} poin)`,
+          `Salah: ${options.wrongUserIds.length} pemain (${WRONG_ANSWER_POINTS} poin)`,
+          options.correctUserIds.length > 0
+            ? `Pemain benar: ${options.correctUserIds.map((id) => `<@${id}>`).join(', ')}`
+            : '',
+        ]
+          .filter((line) => line.length > 0)
+          .join('\n'),
       );
     return embed;
   }
@@ -247,13 +263,13 @@ function parseAnswer(customId: string): AnswerKey | null {
   return ANSWER_KEYS.includes(raw as AnswerKey) ? (raw as AnswerKey) : null;
 }
 
-function addPoints(db: CommandContext['db'], guildId: string, userId: string): void {
+function addPoints(db: CommandContext['db'], guildId: string, userId: string, delta: number): void {
   db.prepare(
     `INSERT INTO trivia_scores (guild_id, user_id, points)
-     VALUES (?, ?, 10)
+     VALUES (?, ?, ?)
      ON CONFLICT(guild_id, user_id)
-     DO UPDATE SET points = points + 10`,
-  ).run(guildId, userId);
+     DO UPDATE SET points = points + excluded.points`,
+  ).run(guildId, userId, delta);
 }
 
 export async function execute(
@@ -308,7 +324,7 @@ export async function executeTrivia(
     }
 
     const lockedUsers = new Set<string>();
-    let winnerId: string | null = null;
+    const answersByUser = new Map<string, AnswerKey>();
     const roundLabel = `${roundNumber}/${sessionQuestionCount}`;
     const endSeconds = Math.floor((nowMs() + ROUND_TIMEOUT_MS) / 1000);
     const countdownText = `⏱️ **Sisa Waktu:** <t:${endSeconds}:R>`;
@@ -339,82 +355,58 @@ export async function executeTrivia(
       if (!answer) return;
 
       if (lockedUsers.has(buttonInteraction.user.id)) {
-        await buttonInteraction.reply({
-          content: 'Kamu sudah mengunci jawabanmu!',
-          ephemeral: true,
-        });
+        await buttonInteraction.deferUpdate().catch(() => undefined);
         return;
       }
 
       lockedUsers.add(buttonInteraction.user.id);
-
-      if (answer === question.jawaban_benar && winnerId === null) {
-        winnerId = buttonInteraction.user.id;
-
-        try {
-          addPoints(db, interaction.guildId!, winnerId);
-        } catch (error) {
-          console.error('[Trivia] failed to update score:', error);
-          await buttonInteraction.reply({
-            content: 'Jawabanmu benar, tapi skor gagal disimpan. Coba ronde berikutnya ya.',
-            ephemeral: true,
-          });
-          collector.stop('db_error');
-          return;
-        }
-
-        await buttonInteraction.reply({
-          content: 'Jawaban kamu benar dan paling cepat!',
-          ephemeral: true,
-        });
-
-        await interaction.followUp({
-          content: `🏆 Ronde ${roundLabel}: <@${winnerId}> paling cepat jawab benar! +10 poin.`,
-        });
-
-        collector.stop('winner');
-        return;
-      }
-
-      await buttonInteraction.reply({
-        content: 'Jawabanmu terkunci. Belum tepat di ronde ini.',
-        ephemeral: true,
-      });
+      answersByUser.set(buttonInteraction.user.id, answer);
+      await buttonInteraction.deferUpdate().catch(() => undefined);
     });
 
     collector.on('end', async (_collected, reason) => {
-      const timedOut = winnerId === null && reason === 'time';
+      const timedOut = reason === 'time';
+      const correctUserIds: string[] = [];
+      const wrongUserIds: string[] = [];
+
+      for (const [userId, answer] of answersByUser.entries()) {
+        if (answer === question.jawaban_benar) correctUserIds.push(userId);
+        else wrongUserIds.push(userId);
+      }
+
+      try {
+        for (const userId of correctUserIds) {
+          addPoints(db, interaction.guildId!, userId, CORRECT_ANSWER_POINTS);
+        }
+        for (const userId of wrongUserIds) {
+          addPoints(db, interaction.guildId!, userId, WRONG_ANSWER_POINTS);
+        }
+      } catch (error) {
+        console.error('[Trivia] failed to update score:', error);
+      }
 
       await interaction
         .editReply({
-          embeds: [buildResultEmbed(question, { winnerId, timedOut, roundLabel })],
+          embeds: [
+            buildResultEmbed(question, {
+              timedOut,
+              roundLabel,
+              correctUserIds,
+              wrongUserIds,
+            }),
+          ],
           components: answerButtons(true),
         })
         .catch(() => undefined);
 
       if (timedOut) {
-        await interaction
-          .followUp({
-            content: `Ronde ${roundLabel} habis waktu. Jawaban benar: **${question.jawaban_benar}**`,
-          })
-          .catch(() => undefined);
+        // Result already shown in the updated embed; avoid extra follow-up noise.
       }
 
       if (roundNumber >= sessionQuestionCount) {
         activeTriviaChannels.delete(channelKey);
-        await interaction
-          .followUp({
-            content: `✅ Sesi trivia selesai. Total soal: ${sessionQuestionCount}. Cek ranking pakai /trivia-leaderboard`,
-          })
-          .catch(() => undefined);
         return;
       }
-
-      await interaction
-        .followUp({
-          content: `➡️ Lanjut ke ronde ${roundNumber + 1}/${sessionQuestionCount}...`,
-        })
-        .catch(() => undefined);
       void playRound(roundNumber + 1);
     });
   };
