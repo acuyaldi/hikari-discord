@@ -7,6 +7,13 @@ import {
 } from '../../../config/env';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
+import {
+  TOOL_LOOP_FALLBACK_MESSAGE,
+  runWithTools,
+} from '../../tools/toolExecutionLoop';
+import { openAICompatibleToolAdapter } from '../../tools/providerAdapters/openaiCompatibleToolAdapter';
+import type { OpenAICompatibleToolState } from '../../tools/providerAdapters/openaiCompatibleToolAdapter';
+import type { ToolProviderAdapter } from '../../tools/types';
 import { recordModelSuccess, recordModelFailure } from '../providerMetrics';
 import {
   circuitBreaker as defaultCircuitBreaker,
@@ -23,9 +30,20 @@ const client = new OpenAI({
 
 const DEBUG = DEBUG_AI;
 
-type OpenRouterMessage = { role: 'system' | 'user'; content: string };
-type OpenRouterCompletion = { choices: { message?: { content?: string | null } }[] };
-type OpenRouterCreateParams = { model: string; messages: OpenRouterMessage[] };
+type OpenRouterMessage = { role: string; content?: unknown; [key: string]: unknown };
+type OpenRouterCompletion = {
+  choices: {
+    message?: {
+      content?: string | null;
+      tool_calls?: unknown[];
+    };
+  }[];
+};
+type OpenRouterCreateParams = {
+  model: string;
+  messages: OpenRouterMessage[];
+  tools?: Array<Record<string, unknown>>;
+};
 
 interface OpenRouterClient {
   chat: {
@@ -88,7 +106,7 @@ export class OpenRouterProvider implements AIProvider {
       ({
         chat: {
           completions: {
-            create: async (params) => client.chat.completions.create(params),
+            create: async (params) => client.chat.completions.create(params as never) as Promise<OpenRouterCompletion>,
           },
         },
       } satisfies OpenRouterClient);
@@ -133,6 +151,16 @@ export class OpenRouterProvider implements AIProvider {
       const start = Date.now();
 
       try {
+        const toolReply = await this.generateWithTools(request, model, messages);
+        if (toolReply !== null) {
+          const latencyMs = Date.now() - start;
+          recordModelSuccess(model, latencyMs);
+          recordHealthSuccess(target, latencyMs);
+          this.circuitBreaker.recordSuccess(target);
+          if (DEBUG) console.log(`[OpenRouter] Success with tools: ${model}`);
+          return { replyText: toolReply, providerUsed: AIProviderName.OPENROUTER };
+        }
+
         const completion = await this.client.chat.completions.create({ model, messages });
         const replyText = completion.choices[0]?.message?.content ?? '';
         const latencyMs = Date.now() - start;
@@ -225,5 +253,29 @@ export class OpenRouterProvider implements AIProvider {
     const summary = errors.map((e) => `  ${e.model} -> ${e.error}`).join('\n');
     if (DEBUG) console.log(`[OpenRouter] All models failed:\n${summary}`);
     throw new Error(`OpenRouter: all models failed:\n${summary}`);
+  }
+
+  private async generateWithTools(
+    request: ChatRequest,
+    model: string,
+    messages: OpenRouterMessage[],
+  ): Promise<string | null> {
+    if (!request.tools || request.tools.length === 0 || request.hasImage) return null;
+
+    const replyText = await runWithTools<OpenAICompatibleToolState, OpenRouterCompletion>({
+      initialState: { messages },
+      providerCall: (state) => this.client.chat.completions.create({
+        model,
+        messages: state.messages as OpenRouterMessage[],
+        tools: state.tools,
+      }),
+      adapter: openAICompatibleToolAdapter as unknown as ToolProviderAdapter<
+        OpenAICompatibleToolState,
+        OpenRouterCompletion
+      >,
+      toolDefinitions: request.tools,
+    });
+
+    return replyText === TOOL_LOOP_FALLBACK_MESSAGE ? null : replyText;
   }
 }

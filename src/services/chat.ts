@@ -6,8 +6,9 @@ import { providerManager } from './ai/providerManager';
 import { trimHistoryForContext } from './context/adaptiveHistory';
 import { buildFinalContext } from './context/contextBuilder';
 import { getSummary } from './summary/summaryService';
-import { DEBUG_MEMORY, DEBUG_SUMMARY } from '../config/env';
+import { DEBUG_MEMORY, DEBUG_SUMMARY, TOOL_CALLING_ENABLED } from '../config/env';
 import { AIProviderName, TaskType } from './ai/types';
+import { getRegisteredTools } from './tools/toolRegistry';
 import type { ChatRequest } from './ai/types';
 import type { ChatMessage } from './context/contextBuilder';
 import type { UserRow } from '../types';
@@ -155,6 +156,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     imageUrl,
     taskType,
     preferredProviders: preferredProvidersForEngine(enginePref),
+    tools: TOOL_CALLING_ENABLED && !hasImage ? getRegisteredTools() : undefined,
   };
 
   const response = await providerManager.generate(chatRequest);

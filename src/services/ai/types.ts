@@ -1,3 +1,5 @@
+import type { ToolDefinition } from '../tools/types';
+
 export enum AIProviderName {
   GEMINI = 'gemini',
   GROQ = 'groq',
@@ -29,6 +31,7 @@ export interface ChatRequest {
   imageUrl?: string;
   taskType: TaskType;
   preferredProviders?: AIProviderName[];
+  tools?: ToolDefinition[];
 }
 
 export interface ChatResponse {

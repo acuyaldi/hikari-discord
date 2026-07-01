@@ -80,6 +80,20 @@ export function appendOpenAICompatibleToolResult(
     messages: [
       ...state.messages,
       {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: toolCall.id,
+            type: 'function',
+            function: {
+              name: toolCall.name,
+              arguments: JSON.stringify(toolCall.arguments),
+            },
+          },
+        ],
+      },
+      {
         role: 'tool',
         tool_call_id: toolCall.id,
         content: JSON.stringify(result),

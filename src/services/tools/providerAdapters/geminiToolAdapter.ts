@@ -82,6 +82,18 @@ export function appendGeminiToolResult(
     contents: [
       ...state.contents,
       {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: toolCall.name,
+              id: toolCall.id,
+              args: toolCall.arguments,
+            },
+          },
+        ],
+      },
+      {
         role: 'tool',
         parts: [
           {

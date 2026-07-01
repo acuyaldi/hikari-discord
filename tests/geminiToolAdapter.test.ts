@@ -75,6 +75,18 @@ test('appendGeminiToolResult appends a functionResponse turn', () => {
   );
 
   assert.deepEqual(nextState.contents[1], {
+    role: 'model',
+    parts: [
+      {
+        functionCall: {
+          name: 'lookupWeather',
+          id: 'call-1',
+          args: { city: 'Bandung' },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(nextState.contents[2], {
     role: 'tool',
     parts: [
       {

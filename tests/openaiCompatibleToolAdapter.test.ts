@@ -83,6 +83,20 @@ test('appendOpenAICompatibleToolResult appends a tool message with serialized ou
   );
 
   assert.deepEqual(nextState.messages[1], {
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      {
+        id: 'call-1',
+        type: 'function',
+        function: {
+          name: 'lookupWeather',
+          arguments: '{"city":"Bandung"}',
+        },
+      },
+    ],
+  });
+  assert.deepEqual(nextState.messages[2], {
     role: 'tool',
     tool_call_id: 'call-1',
     content: '{"success":true,"data":{"forecast":"sunny"}}',

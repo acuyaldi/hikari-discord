@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import type { Command } from './src/types';
 import { DISCORD_TOKEN } from './src/config/env';
 import { registerEvents } from './src/events';
+import { registerDefaultTools } from './src/services/tools/registerTools';
 
 import * as resetCmd from './src/commands/reset';
 import * as setnameCmd from './src/commands/setname';
@@ -48,6 +49,7 @@ const commands: Command[] = [
   triviaLeaderboardCmd,
 ];
 
+registerDefaultTools();
 registerEvents(client, commands);
 
 client.login(DISCORD_TOKEN);
