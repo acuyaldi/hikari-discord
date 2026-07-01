@@ -50,6 +50,15 @@ export const MEMORY_DETECTOR_MODEL = process.env.MEMORY_DETECTOR_MODEL ?? 'gemin
 export const DEBUG_SUMMARY = process.env.DEBUG_SUMMARY === 'true';
 export const DEBUG_AI = process.env.DEBUG_AI === 'true';
 export const DEBUG_MEMORY = process.env.DEBUG_MEMORY === 'true';
+export const TOOL_CALLING_ENABLED = process.env.TOOL_CALLING_ENABLED === 'true';
+export const TOOL_MAX_ITERATIONS = Number.parseInt(
+  process.env.TOOL_MAX_ITERATIONS ?? '3',
+  10,
+);
+export const TOOL_EXECUTION_TIMEOUT_MS = Number.parseInt(
+  process.env.TOOL_EXECUTION_TIMEOUT_MS ?? '10000',
+  10,
+);
 export const IMAGE_MAX_SIZE_MB = Number.parseInt(
   process.env.IMAGE_MAX_SIZE_MB ?? '10',
   10,
