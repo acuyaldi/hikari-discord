@@ -1,7 +1,8 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { CommandContext } from '../types';
-import { getStats } from '../services/ai/providerMetrics';
+import { formatProviderStats } from '../services/ai/aiDebugFormatter';
+import { getProviderMetricsSnapshot } from '../services/ai/providerMetrics';
 
 export const data = new SlashCommandBuilder()
   .setName('stats')
@@ -12,7 +13,7 @@ export async function execute(
   _context: CommandContext,
 ): Promise<void> {
   await interaction.reply({
-    content: `**Provider Stats**\n\n${getStats()}`,
+    content: formatProviderStats(getProviderMetricsSnapshot()),
     ephemeral: true,
   });
 }

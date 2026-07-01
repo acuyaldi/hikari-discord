@@ -43,10 +43,17 @@ export class GeminiProvider implements AIProvider {
         `[INFO INTERNET TERBARU: ${searchResponse.text}]\n\nBerdasarkan info di atas, jawab dengan kreatif: ${promptText}`;
     }
 
-    const messageContent =
-      hasImage && imageUrl
-        ? [sendPrompt, { inlineData: await downloadDiscordImage(imageUrl) }]
-        : sendPrompt;
+    let messageContent: string | Array<string | { inlineData: { data: string; mimeType: string } }> =
+      sendPrompt;
+
+    if (hasImage && imageUrl) {
+      try {
+        messageContent = [sendPrompt, { inlineData: await downloadDiscordImage(imageUrl) }];
+      } catch {
+        messageContent =
+          `[INFO SISTEM: Gambar gagal diproses, jadi jawab dari teks user saja dan jelaskan singkat bahwa gambar belum bisa dibaca saat ini.]\n\n${sendPrompt}`;
+      }
+    }
 
     const response = await getGeminiChat(channelId, dynamicSystemInstruction).sendMessage({
       message: messageContent,

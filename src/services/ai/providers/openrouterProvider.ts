@@ -3,6 +3,13 @@ import { OPENROUTER_API_KEY, OPENROUTER_MODELS } from '../../../config/env';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
 import { recordModelSuccess, recordModelFailure } from '../providerMetrics';
+import {
+  circuitBreaker as defaultCircuitBreaker,
+  isTransientAIError,
+  type CircuitBreaker,
+} from '../circuitBreaker';
+import { markCooldown, recordHealthFailure, recordHealthSuccess } from '../healthCache';
+import { rankTargets } from '../providerRanking';
 
 const client = new OpenAI({
   apiKey: OPENROUTER_API_KEY,
@@ -10,6 +17,25 @@ const client = new OpenAI({
 });
 
 const DEBUG = process.env.DEBUG_AI === 'true';
+
+type OpenRouterMessage = { role: 'system' | 'user'; content: string };
+type OpenRouterCompletion = { choices: { message?: { content?: string | null } }[] };
+type OpenRouterCreateParams = { model: string; messages: OpenRouterMessage[] };
+
+interface OpenRouterClient {
+  chat: {
+    completions: {
+      create(params: OpenRouterCreateParams): Promise<OpenRouterCompletion>;
+    };
+  };
+}
+
+interface OpenRouterProviderOptions {
+  apiKey?: string;
+  models?: string[];
+  circuitBreaker?: CircuitBreaker;
+  client?: OpenRouterClient;
+}
 
 function isRetryable(err: unknown): boolean {
   if (err instanceof OpenAI.APIError) {
@@ -26,37 +52,87 @@ export class OpenRouterProvider implements AIProvider {
   readonly supportsReasoning = false;
   readonly supportsCoding = true;
 
+  private readonly apiKey: string;
+  private readonly models: string[];
+  private readonly circuitBreaker: CircuitBreaker;
+  private readonly client: OpenRouterClient;
+
+  constructor(options: OpenRouterProviderOptions = {}) {
+    this.apiKey = options.apiKey ?? OPENROUTER_API_KEY;
+    this.models = options.models ?? OPENROUTER_MODELS;
+    this.circuitBreaker = options.circuitBreaker ?? defaultCircuitBreaker;
+    this.client =
+      options.client ??
+      ({
+        chat: {
+          completions: {
+            create: async (params) => client.chat.completions.create(params),
+          },
+        },
+      } satisfies OpenRouterClient);
+  }
+
   async generate(request: ChatRequest): Promise<ChatResponse> {
-    if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
+    if (!this.apiKey) throw new Error('OPENROUTER_API_KEY not configured');
 
     const { dynamicSystemInstruction, finalPrompt } = request;
-    const messages: { role: 'system' | 'user'; content: string }[] = [
+    const messages: OpenRouterMessage[] = [
       { role: 'system', content: dynamicSystemInstruction },
       { role: 'user', content: finalPrompt },
     ];
 
     const errors: { model: string; error: string }[] = [];
+    let skippedModels = 0;
+    const modelTargets = this.models.map((model) => `openrouter:${model}`);
+    const rankedTargets = rankTargets(modelTargets);
 
-    for (const model of OPENROUTER_MODELS) {
+    if (DEBUG) {
+      console.log(
+        [
+          '[OpenRouter Ranking]',
+          `order before: ${modelTargets.join(',')}`,
+          `order after: ${rankedTargets.join(',')}`,
+        ].join('\n'),
+      );
+    }
+
+    for (const target of rankedTargets) {
+      const model = target.slice('openrouter:'.length);
+      if (!this.circuitBreaker.isAvailable(target)) {
+        const state = this.circuitBreaker.getState(target);
+        if (state.openedUntil) markCooldown(target, state.openedUntil, state.lastError);
+        skippedModels += 1;
+        continue;
+      }
+
       if (DEBUG) console.log(`[OpenRouter] Trying model: ${model}`);
       const start = Date.now();
 
       try {
-        const completion = await client.chat.completions.create({ model, messages });
+        const completion = await this.client.chat.completions.create({ model, messages });
         const replyText = completion.choices[0]?.message?.content ?? '';
-        recordModelSuccess(model, Date.now() - start);
-        if (DEBUG) console.log(`[OpenRouter] ✓ Success: ${model}`);
+        const latencyMs = Date.now() - start;
+        recordModelSuccess(model, latencyMs);
+        recordHealthSuccess(target, latencyMs);
+        this.circuitBreaker.recordSuccess(target);
+        if (DEBUG) console.log(`[OpenRouter] Success: ${model}`);
         return { replyText, providerUsed: AIProviderName.OPENROUTER };
       } catch (err) {
         const status = err instanceof OpenAI.APIError ? err.status : undefined;
         const msg = err instanceof Error ? err.message : String(err);
 
         recordModelFailure(model);
+        recordHealthFailure(target, err, isTransientAIError(err));
+        this.circuitBreaker.recordFailure(target, err);
+        const state = this.circuitBreaker.getState(target);
+        if (state.isOpen && state.openedUntil) markCooldown(target, state.openedUntil, err);
         errors.push({ model, error: `${status ?? 'network'}: ${msg}` });
 
         if (DEBUG) {
-          console.log(`[OpenRouter] ✗ Failed (${status ?? 'network'}): ${model}`);
-          if (errors.length < OPENROUTER_MODELS.length) console.log('[OpenRouter] Trying next...');
+          console.log(`[OpenRouter] Failed (${status ?? 'network'}): ${model}`);
+          if (errors.length + skippedModels < this.models.length) {
+            console.log('[OpenRouter] Trying next...');
+          }
         }
 
         if (!isRetryable(err)) {
@@ -65,7 +141,11 @@ export class OpenRouterProvider implements AIProvider {
       }
     }
 
-    const summary = errors.map((e) => `  ${e.model} → ${e.error}`).join('\n');
+    if (errors.length === 0 && skippedModels === this.models.length) {
+      throw new Error('OpenRouter: all models are temporarily unavailable due to circuit breaker cooldown');
+    }
+
+    const summary = errors.map((e) => `  ${e.model} -> ${e.error}`).join('\n');
     if (DEBUG) console.log(`[OpenRouter] All models failed:\n${summary}`);
     throw new Error(`OpenRouter: all models failed:\n${summary}`);
   }

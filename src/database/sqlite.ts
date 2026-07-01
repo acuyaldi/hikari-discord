@@ -55,6 +55,24 @@ db.prepare(`
   ON user_memory(user_id, category)
 `).run();
 
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS conversation_summary (
+    id              INTEGER PRIMARY KEY,
+    user_id         TEXT    NOT NULL,
+    guild_id        TEXT,
+    summary         TEXT    NOT NULL,
+    message_count   INTEGER NOT NULL,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    last_message_at INTEGER NOT NULL
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_conversation_summary_user
+  ON conversation_summary(user_id)
+`).run();
+
 db.pragma(`user_version = ${SCHEMA_VERSION}`);
 
 export default db;
