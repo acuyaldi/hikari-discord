@@ -1,11 +1,30 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import axios from 'axios';
+import { PDFParse } from 'pdf-parse';
 import { splitMessage } from '../utils/splitmessage';
 import { baseSystemInstruction } from '../prompt/basePrompt';
 import { deepAnalysisInstruction } from '../prompt/deepPrompt';
 import groq from '../ai/groq';
 import ai from '../ai/gemini';
 import type { CommandContext, UserRow } from '../types';
+
+async function extractAttachmentText(url: string, fileName: string, contentType: string | null): Promise<string> {
+  const fileResponse = await axios.get<ArrayBuffer>(url, { responseType: 'arraybuffer' });
+  const dataBuffer = Buffer.from(fileResponse.data);
+  const isPdf = contentType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+
+  if (isPdf) {
+    const parser = new PDFParse({ data: dataBuffer });
+    try {
+      const parsedPdf = await parser.getText();
+      return parsedPdf.text;
+    } finally {
+      await parser.destroy();
+    }
+  }
+
+  return dataBuffer.toString('utf-8');
+}
 
 export const data = new SlashCommandBuilder()
   .setName('analyze')
@@ -52,8 +71,12 @@ export async function execute(
     let sourceInfo = '';
 
     if (fileAttachment) {
-      const fileResponse = await axios.get<string>(fileAttachment.url, { responseType: 'text' });
-      finalContentToAnalyze += `[FILE: ${fileAttachment.name}]\n${fileResponse.data}\n\n`;
+      const attachmentText = await extractAttachmentText(
+        fileAttachment.url,
+        fileAttachment.name,
+        fileAttachment.contentType,
+      );
+      finalContentToAnalyze += `[FILE: ${fileAttachment.name}]\n${attachmentText}\n\n`;
       sourceInfo += `📄 File: \`${fileAttachment.name}\` `;
     }
 
