@@ -11,6 +11,8 @@ import {
 import { Type } from '@google/genai';
 import type { CommandContext } from '../types';
 import ai from '../ai/gemini';
+import { providerManager } from '../services/ai/providerManager';
+import { AIProviderName, TaskType } from '../services/ai/types';
 import triviaQuestions from '../../trivia_questions.json';
 
 interface TriviaQuestion {
@@ -56,7 +58,14 @@ export const data = new SlashCommandBuilder()
 
 function sanitizeJsonResponse(raw: string): string {
   const trimmed = raw.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
+  if (!trimmed.startsWith('```')) {
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return trimmed.slice(firstBrace, lastBrace + 1);
+    }
+    return trimmed;
+  }
 
   const withoutFence = trimmed
     .replace(/^```json\s*/i, '')
@@ -128,6 +137,14 @@ function pickFallbackQuestion(): TriviaQuestion {
   return candidates[index]!;
 }
 
+function pickUnusedFallbackQuestion(usedQuestionKeys: Set<string>): TriviaQuestion {
+  const candidates = localFallbackQuestions();
+  const unused = candidates.filter((question) => !usedQuestionKeys.has(questionKey(question)));
+  if (unused.length === 0) return pickFallbackQuestion();
+  const index = Math.floor(Math.random() * unused.length);
+  return unused[index]!;
+}
+
 function questionKey(question: TriviaQuestion): string {
   return question.soal
     .trim()
@@ -195,29 +212,41 @@ async function resolveUniqueRoundQuestion(
   resolveQuestion: () => Promise<TriviaQuestion>,
   usedQuestionKeys: Set<string>,
 ): Promise<TriviaQuestion> {
-  let fallbackCandidate: TriviaQuestion | null = null;
-
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
     const candidate = await resolveQuestion();
     const key = questionKey(candidate);
 
     if (!usedQuestionKeys.has(key)) {
       return candidate;
     }
-
-    fallbackCandidate = candidate;
   }
 
-  // If every attempt repeats, continue with the latest candidate to avoid blocking gameplay.
-  return fallbackCandidate ?? pickFallbackQuestion();
+  // If repeated responses persist, force variation from local fallback pool.
+  return pickUnusedFallbackQuestion(usedQuestionKeys);
 }
 
-async function generateTriviaQuestion(): Promise<TriviaQuestion> {
+async function generateTriviaQuestion(recentQuestionKeys: string[] = []): Promise<TriviaQuestion> {
+  const avoidList = recentQuestionKeys
+    .slice(0, 10)
+    .map((key, index) => `${index + 1}. ${key}`)
+    .join('\n');
+
+  const prompt =
+    avoidList.length > 0
+      ? [
+          'Buat 1 soal trivia sekarang.',
+          'Hindari pertanyaan yang mirip dengan daftar berikut:',
+          avoidList,
+          'Pilih kategori/fakta lain yang berbeda.',
+        ].join('\n')
+      : 'Buat 1 soal trivia sekarang.';
+
   const response = await ai.models.generateContent({
     model: TRIVIA_MODEL,
-    contents: 'Buat 1 soal trivia sekarang.',
+    contents: prompt,
     config: {
       systemInstruction: TRIVIA_SYSTEM_INSTRUCTION,
+      temperature: 1.2,
       responseMimeType: 'application/json',
       responseJsonSchema: {
         type: Type.OBJECT,
@@ -249,8 +278,47 @@ async function generateTriviaQuestion(): Promise<TriviaQuestion> {
   return parseTriviaQuestion(text);
 }
 
+async function generateTriviaQuestionViaProviderRouter(
+  recentQuestionKeys: string[] = [],
+): Promise<TriviaQuestion> {
+  const avoidList = recentQuestionKeys
+    .slice(0, 10)
+    .map((key, index) => `${index + 1}. ${key}`)
+    .join('\n');
+
+  const prompt = [
+    'Buat 1 soal trivia unik berbahasa Indonesia.',
+    avoidList.length > 0
+      ? `Hindari pertanyaan yang mirip daftar ini:\n${avoidList}`
+      : 'Pastikan pertanyaan tidak monoton.',
+    'Wajib output JSON saja (tanpa penjelasan, tanpa markdown).',
+    'Format wajib:',
+    '{"kategori":"...","soal":"...","pilihan":["A. ...","B. ...","C. ...","D. ..."],"jawaban_benar":"A|B|C|D"}',
+  ].join('\n\n');
+
+  const response = await providerManager.generate({
+    userId: 'trivia-system',
+    guildId: null,
+    channelId: 'trivia-system',
+    promptText: prompt,
+    identityPrefix: '',
+    finalPrompt: prompt,
+    dynamicSystemInstruction: TRIVIA_SYSTEM_INSTRUCTION,
+    hasImage: false,
+    taskType: TaskType.GENERAL,
+    preferredProviders: [
+      AIProviderName.OPENROUTER,
+      AIProviderName.HUGGINGFACE,
+      AIProviderName.GROQ,
+    ],
+  });
+
+  return parseTriviaQuestion(response.replyText);
+}
+
 export async function generateTriviaQuestionWithRetry(
   generator: () => Promise<TriviaQuestion> = generateTriviaQuestion,
+  providerFallback?: () => Promise<TriviaQuestion>,
 ): Promise<TriviaQuestion> {
   let lastError: unknown;
 
@@ -260,6 +328,15 @@ export async function generateTriviaQuestionWithRetry(
     } catch (error) {
       lastError = error;
       console.error(`[Trivia] generate question failed (attempt ${attempt}/2):`, error);
+    }
+  }
+
+  if (providerFallback) {
+    try {
+      return await providerFallback();
+    } catch (error) {
+      lastError = error;
+      console.error('[Trivia] provider-router fallback also failed:', error);
     }
   }
 
@@ -286,20 +363,22 @@ function buildQuestionEmbed(
   timeStatus: string,
   roundLabel: string,
 ): EmbedBuilder {
+  const optionsText = question.pilihan.map((choice) => `• ${choice}`).join('\n');
+
   return new EmbedBuilder()
     .setColor(0x3498db)
-    .setTitle('🧠 Trivia Kilat')
-    .setDescription(question.soal)
+    .setTitle(`🧠 Trivia Kilat • Ronde ${roundLabel}`)
+    .setDescription(`**${question.soal}**\n\n${optionsText}`)
     .addFields(
-      { name: 'Ronde', value: roundLabel, inline: true },
       { name: 'Kategori', value: question.kategori, inline: true },
       { name: 'Waktu', value: timeStatus, inline: true },
-      { name: 'Pilihan A', value: question.pilihan[0], inline: false },
-      { name: 'Pilihan B', value: question.pilihan[1], inline: false },
-      { name: 'Pilihan C', value: question.pilihan[2], inline: false },
-      { name: 'Pilihan D', value: question.pilihan[3], inline: false },
+      {
+        name: 'Cara Main',
+        value: 'Klik tombol A/B/C/D sekali untuk mengunci jawabanmu sebelum waktu habis.',
+        inline: false,
+      },
     )
-    .setFooter({ text: 'Fastest Finger First • Klik 1x, tidak bisa ganti jawaban' });
+    .setFooter({ text: 'Jawaban terkunci setelah klik • Menunggu rekap di akhir ronde' });
 }
 
 function buildResultEmbed(
@@ -408,7 +487,6 @@ export async function executeTrivia(
 
   activeTriviaChannels.add(channelKey);
 
-  const resolveQuestion = dependencies.generateQuestion ?? (() => generateTriviaQuestionWithRetry());
   const nowMs = dependencies.nowMs ?? Date.now;
   const sessionQuestionCount = Math.max(1, dependencies.questionCount ?? DEFAULT_SESSION_QUESTION_COUNT);
   let usedQuestionKeys = new Set<string>();
@@ -435,7 +513,15 @@ export async function executeTrivia(
 
     let question: TriviaQuestion;
     try {
-      question = await resolveUniqueRoundQuestion(resolveQuestion, usedQuestionKeys);
+      question = await resolveUniqueRoundQuestion(async () => {
+        if (dependencies.generateQuestion) {
+          return dependencies.generateQuestion();
+        }
+        return generateTriviaQuestionWithRetry(
+          () => generateTriviaQuestion(Array.from(usedQuestionKeys)),
+          () => generateTriviaQuestionViaProviderRouter(Array.from(usedQuestionKeys)),
+        );
+      }, usedQuestionKeys);
       const key = questionKey(question);
       usedQuestionKeys.add(key);
 

@@ -68,5 +68,145 @@
     "soal": "Monumen Nasional (Monas) yang ikonik terletak di kota mana?",
     "pilihan": ["A. Bandung", "B. Surabaya", "C. Yogyakarta", "D. Jakarta"],
     "jawaban_benar": "D"
+  },
+  {
+    "id": 11,
+    "kategori": "Teknologi",
+    "soal": "Siapakah ilmuwan komputer yang dikenal sebagai penemu World Wide Web (WWW)?",
+    "pilihan": ["A. Bill Gates", "B. Steve Jobs", "C. Tim Berners-Lee", "D. Alan Turing"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 12,
+    "kategori": "Olahraga",
+    "soal": "Negara manakah yang memegang rekor trofi juara Piala Dunia FIFA terbanyak dalam sejarah?",
+    "pilihan": ["A. Jerman", "B. Brasil", "C. Italia", "D. Argentina"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 13,
+    "kategori": "Film",
+    "soal": "Siapakah sutradara di balik film fiksi ilmiah terkenal 'Inception' dan 'Interstellar'?",
+    "pilihan": ["A. Steven Spielberg", "B. Christopher Nolan", "C. Quentin Tarantino", "D. James Cameron"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 14,
+    "kategori": "Seni",
+    "soal": "Pelukis legendaris asal Italia yang menciptakan karya agung 'Mona Lisa' adalah...",
+    "pilihan": ["A. Michelangelo", "B. Vincent van Gogh", "C. Pablo Picasso", "D. Leonardo da Vinci"],
+    "jawaban_benar": "D"
+  },
+  {
+    "id": 15,
+    "kategori": "Astronomi",
+    "soal": "Apa nama galaksi spiral raksasa yang menjadi tempat bernaung tata surya kita?",
+    "pilihan": ["A. Andromeda", "B. Bimasakti", "C. Magellan", "D. Sombrero"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 16,
+    "kategori": "Fauna",
+    "soal": "Burung terbesar di dunia yang tidak bisa terbang namun memiliki kemampuan berlari sangat cepat adalah...",
+    "pilihan": ["A. Burung Unta", "B. Elang Emas", "C. Albatros", "D. Kasuari"],
+    "jawaban_benar": "A"
+  },
+  {
+    "id": 17,
+    "kategori": "Geografi",
+    "soal": "Apakah nama sungai terpanjang di dunia yang mengalir melintasi beberapa negara di benua Afrika?",
+    "pilihan": ["A. Sungai Amazon", "B. Sungai Yangtze", "C. Sungai Nil", "D. Sungai Mississippi"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 18,
+    "kategori": "Sejarah",
+    "soal": "Pada tahun berapakah Perang Dunia II secara resmi dinyatakan berakhir?",
+    "pilihan": ["A. 1918", "B. 1939", "C. 1945", "D. 1950"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 19,
+    "kategori": "Kesehatan",
+    "soal": "Jenis vitamin apa yang dapat diproduksi secara alami oleh tubuh manusia saat terpapar sinar matahari pagi?",
+    "pilihan": ["A. Vitamin A", "B. Vitamin B12", "C. Vitamin C", "D. Vitamin D"],
+    "jawaban_benar": "D"
+  },
+  {
+    "id": 20,
+    "kategori": "Musik",
+    "soal": "Siapakah nama vokalis utama dari grup band rock legendaris asal Inggris bernama Queen?",
+    "pilihan": ["A. Freddie Mercury", "B. Mick Jagger", "C. John Lennon", "D. Elton John"],
+    "jawaban_benar": "A"
+  },
+  {
+    "id": 21,
+    "kategori": "Teknologi",
+    "soal": "Bahasa pemrograman tingkat tinggi yang menjadi standar utama untuk pengembangan aplikasi iOS modern saat ini adalah...",
+    "pilihan": ["A. Java", "B. Kotlin", "C. Swift", "D. Python"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 22,
+    "kategori": "Kuliner",
+    "soal": "Bahan dasar nabati utama yang digunakan dalam proses pembuatan Tahu dan Tempe adalah...",
+    "pilihan": ["A. Kacang Hijau", "B. Kacang Tanah", "C. Kacang Kedelai", "D. Gandum"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 23,
+    "kategori": "Fisika",
+    "soal": "Dalam Sistem Internasional (SI), satuan yang digunakan untuk mengukur besaran Gaya adalah...",
+    "pilihan": ["A. Joule", "B. Watt", "C. Volt", "D. Newton"],
+    "jawaban_benar": "D"
+  },
+  {
+    "id": 24,
+    "kategori": "Geografi",
+    "soal": "Apakah nama negara merdeka terkecil di dunia jika diukur berdasarkan total luas wilayahnya?",
+    "pilihan": ["A. Monako", "B. Vatikan", "C. San Marino", "D. Maladewa"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 25,
+    "kategori": "Pop Culture",
+    "soal": "Siapakah nama alter-ego di balik topeng pahlawan super penjaga kota Gotham, Batman?",
+    "pilihan": ["A. Clark Kent", "B. Bruce Wayne", "C. Peter Parker", "D. Tony Stark"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 26,
+    "kategori": "Olahraga",
+    "soal": "Berapa menit durasi waktu normal yang berlaku dalam satu babak penuh pertandingan sepak bola (tanpa perpanjangan waktu)?",
+    "pilihan": ["A. 45 Menit", "B. 90 Menit", "C. 60 Menit", "D. 80 Menit"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 27,
+    "kategori": "Mitologi",
+    "soal": "Dalam mitologi Yunani, makhluk mistis berwujud seekor kuda jantan yang memiliki sepasang sayap megah bernama...",
+    "pilihan": ["A. Minotaur", "B. Pegasus", "C. Cerberus", "D. Sphinx"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 28,
+    "kategori": "Sains",
+    "soal": "Gas apakah yang memiliki persentase kandungan paling besar dan mendominasi atmosfer planet Bumi?",
+    "pilihan": ["A. Oksigen", "B. Karbondioksida", "C. Nitrogen", "D. Hidrogen"],
+    "jawaban_benar": "C"
+  },
+  {
+    "id": 29,
+    "kategori": "Sastra",
+    "soal": "Siapakah penulis novel fiksi terkenal yang menciptakan dunia sihir ajaib 'Harry Potter'?",
+    "pilihan": ["A. J.R.R. Tolkien", "B. J.K. Rowling", "C. George R.R. Martin", "D. Stephen King"],
+    "jawaban_benar": "B"
+  },
+  {
+    "id": 30,
+    "kategori": "Arsitektur",
+    "soal": "Menara Miring Pisa yang sangat ikonik dan menjadi salah satu keajaiban dunia terletak di negara...",
+    "pilihan": ["A. Prancis", "B. Spanyol", "C. Italia", "D. Yunani"],
+    "jawaban_benar": "C"
   }
 ]
