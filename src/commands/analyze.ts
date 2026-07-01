@@ -154,13 +154,12 @@ export async function execute(
       }
     }
 
-    const replyChunks = splitMessage(resultText);
+    const replyHeader = `📂 **Sirkuit Analisis Sukses!**\n> **Engine:** \`${engineUsed}\`\n${sourceInfo}\n\n`;
+    const replyChunks = splitMessage(`${replyHeader}${resultText}`);
     console.log(
       `[Analyze] success engine=${engineUsed} replyChars=${resultText.length} chunks=${replyChunks.length}`,
     );
-    await interaction.editReply({
-      content: `📂 **Sirkuit Analisis Sukses!**\n> **Engine:** \`${engineUsed}\`\n${sourceInfo}\n\n${replyChunks[0]}`,
-    });
+    await interaction.editReply({ content: replyChunks[0] });
     for (let i = 1; i < replyChunks.length; i++) {
       await interaction.followUp({ content: replyChunks[i] });
     }
