@@ -74,7 +74,9 @@ export async function execute(
   console.log(
     `[Analyze] start user=${userId} attachment=${fileAttachment?.name ?? 'none'} url=${inputUrl ?? 'none'} mode=${selectedMode}`,
   );
-  await interaction.deferReply();
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply();
+  }
   try {
     let finalContentToAnalyze = '';
     let sourceInfo = '';

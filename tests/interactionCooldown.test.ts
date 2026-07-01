@@ -38,6 +38,9 @@ function createInteraction(commandName: string, userId: string) {
       interaction.replied = true;
       replies.push(payload);
     },
+    deferReply: async () => {
+      interaction.deferred = true;
+    },
     editReply: async (payload: string | InteractionReplyOptions) => {
       replies.push(payload);
     },
@@ -85,17 +88,26 @@ test('AI slash commands share the per-user cooldown', async () => {
 test('AI slash cooldown is per-user', async () => {
   clearCooldowns();
   let drawCalls = 0;
+  let sawDeferred = false;
   const harness = createClientHarness();
   registerInteractionCreate(harness.client as never, [
-    createCommand('draw', () => {
-      drawCalls += 1;
-    }),
+    {
+      data: {
+        name: 'draw',
+        toJSON: () => ({ name: 'draw' }),
+      },
+      execute: async (interaction) => {
+        sawDeferred = interaction.deferred;
+        drawCalls += 1;
+      },
+    },
   ]);
 
   await harness.dispatch(createInteraction('draw', 'user-one').interaction);
   await harness.dispatch(createInteraction('draw', 'user-two').interaction);
 
   assert.equal(drawCalls, 2);
+  assert.equal(sawDeferred, true);
 });
 
 test('non-AI slash commands are not gated by the AI cooldown', async () => {
@@ -162,6 +174,30 @@ test('interaction reply failures do not escape the interaction handler', async (
   await assert.doesNotReject(async () => {
     await harness.dispatch(interaction);
   });
+});
+
+test('unknown interaction errors do not trigger an additional fallback reply attempt', async () => {
+  clearCooldowns();
+  const harness = createClientHarness();
+  const { interaction, replies } = createInteraction('analyze', 'user-analyze');
+
+  registerInteractionCreate(harness.client as never, [
+    {
+      data: {
+        name: 'analyze',
+        toJSON: () => ({ name: 'analyze' }),
+      },
+      execute: async () => {
+        throw Object.assign(new Error('Unknown interaction'), { code: 10062, status: 404 });
+      },
+    },
+  ]);
+
+  await assert.doesNotReject(async () => {
+    await harness.dispatch(interaction);
+  });
+
+  assert.equal(replies.length, 0);
 });
 
 test('fallback switches to editReply when reply says interaction was already acknowledged', async () => {

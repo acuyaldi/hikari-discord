@@ -20,7 +20,9 @@ export async function execute(
   const panggilan = userRow?.nickname ?? 'Senpai';
   const userPrompt = interaction.options.getString('prompt', true);
 
-  await interaction.deferReply();
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply();
+  }
   try {
     const seed = Math.floor(Math.random() * 1000000);
     const imageUrl = `https://image.pollinations.ai/p/${encodeURIComponent(userPrompt)}?width=1024&height=1024&seed=${seed}&nofeed=true`;

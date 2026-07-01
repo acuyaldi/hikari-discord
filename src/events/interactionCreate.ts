@@ -7,6 +7,13 @@ const AI_COOLDOWN_COMMANDS = new Set(['analyze', 'draw']);
 const COOLDOWN_REPLY = 'Sebentar ya Senpai, Hikari masih memproses permintaanmu yang sebelumnya.';
 const COMMAND_ERROR_REPLY = 'Gomennasai Senpai... Perintah itu gagal diproses barusan. Coba lagi ya.';
 
+function isUnknownInteractionError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: number }).code === 10062;
+}
+
 function isAlreadyAcknowledgedError(error: unknown): boolean {
   return typeof error === 'object'
     && error !== null
@@ -64,12 +71,19 @@ export function registerInteractionCreate(client: Client, allCommands: Command[]
         await interaction.reply({ content: COOLDOWN_REPLY, ephemeral: true });
         return;
       }
+      if (AI_COOLDOWN_COMMANDS.has(interaction.commandName) && !interaction.deferred && !interaction.replied) {
+        await interaction.deferReply();
+      }
       await cmd.execute(interaction, { db });
     } catch (error) {
       console.error(
         `[InteractionCreate] command failed: ${interaction.commandName} deferred=${interaction.deferred === true} replied=${interaction.replied === true}`,
         error,
       );
+      if (isUnknownInteractionError(error)) {
+        console.error('[InteractionCreate] interaction expired before a response could be sent');
+        return;
+      }
       await safeInteractionErrorReply(interaction);
     }
   });
