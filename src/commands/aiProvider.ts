@@ -38,6 +38,7 @@ export const data = new SlashCommandBuilder()
             { name: 'gemini', value: 'gemini' },
             { name: 'groq', value: 'groq' },
             { name: 'openrouter', value: 'openrouter' },
+            { name: 'huggingface', value: 'huggingface' },
           ),
       )
       .addStringOption((option) =>

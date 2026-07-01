@@ -135,6 +135,7 @@ test('registerMessageCreate passes multiple labeled summary messages into the su
   let transcriptLimit: number | null = null;
 
   registerMessageCreate(harness.client as never, {
+    claimMessageDelivery: () => true,
     checkCooldown: () => false,
     buildMultiUserContext: async () => multiUserContextResult(),
     chat: async () => ({
@@ -168,6 +169,7 @@ test('registerMessageCreate falls back to a single user message when transcript 
   const summaryInputs: Array<{ recentMessages?: string[] }> = [];
 
   registerMessageCreate(harness.client as never, {
+    claimMessageDelivery: () => true,
     checkCooldown: () => false,
     buildMultiUserContext: async () => multiUserContextResult(),
     chat: async () => ({
@@ -200,6 +202,7 @@ test('registerMessageCreate ignores duplicate delivery of the same message id', 
   });
 
   registerMessageCreate(harness.client as never, {
+    claimMessageDelivery: () => true,
     checkCooldown: () => false,
     buildMultiUserContext: async () => multiUserContextResult(),
     chat: async () => {
@@ -226,6 +229,7 @@ test('registerMessageCreate ignores rapid duplicate prompt with different messag
   const replies: Array<string | { content: string }> = [];
 
   registerMessageCreate(harness.client as never, {
+    claimMessageDelivery: () => true,
     checkCooldown: () => false,
     buildMultiUserContext: async () => multiUserContextResult(),
     chat: async () => {

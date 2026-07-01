@@ -4,6 +4,7 @@ import { AI_PROVIDER_ORDER, DEBUG_AI } from '../../config/env';
 import { recordSuccess, recordFailure } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
+import { HuggingFaceProvider } from './providers/huggingFaceProvider';
 import { OpenRouterProvider } from './providers/openrouterProvider';
 import {
   circuitBreaker as defaultCircuitBreaker,
@@ -164,3 +165,4 @@ export const providerManager = new ProviderManager();
 providerManager.registerProvider(new GeminiProvider());
 providerManager.registerProvider(new GroqProvider());
 providerManager.registerProvider(new OpenRouterProvider());
+providerManager.registerProvider(new HuggingFaceProvider());

@@ -1,4 +1,5 @@
 import { AttachmentBuilder, Client, Message } from 'discord.js';
+import db from '../database/sqlite';
 
 import {
   SPESIFIK_CHANNEL_ID,
@@ -41,6 +42,7 @@ interface RegisterMessageCreateDependencies {
   maybeRunSummaryPipeline?: typeof maybeRunSummaryPipeline;
   buildMultiUserContext?: typeof buildMultiUserContext;
   getChannelTranscript?: typeof getChannelTranscript;
+  claimMessageDelivery?: (messageId: string) => boolean;
 }
 
 interface BuildSummaryRecentMessagesOptions {
@@ -50,6 +52,26 @@ interface BuildSummaryRecentMessagesOptions {
 }
 const MESSAGE_DEDUPE_TTL_MS = 30_000;
 const REQUEST_FINGERPRINT_TTL_MS = 12_000;
+const MESSAGE_DEDUPE_DB_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+function claimMessageDelivery(messageId: string): boolean {
+  const now = Date.now();
+
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO processed_message_events (message_id, created_at)
+       VALUES (?, ?)`,
+    )
+    .run(messageId, now);
+
+  // Opportunistic cleanup so the dedupe table does not grow forever.
+  if (Math.random() < 0.02) {
+    const cutoff = now - MESSAGE_DEDUPE_DB_TTL_MS;
+    db.prepare('DELETE FROM processed_message_events WHERE created_at < ?').run(cutoff);
+  }
+
+  return result.changes > 0;
+}
 
 function normalizeMessageContent(content: string): string {
   return content.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -177,6 +199,7 @@ export function registerMessageCreate(
   const runMemory = dependencies.runMemoryPipeline ?? runMemoryPipeline;
   const buildContext = dependencies.buildMultiUserContext ?? buildMultiUserContext;
   const getTranscript = dependencies.getChannelTranscript ?? getChannelTranscript;
+  const claimDelivery = dependencies.claimMessageDelivery ?? claimMessageDelivery;
   const processedMessageIds = new Set<string>();
   const inFlightRequestFingerprints = new Set<string>();
   const recentRequestFingerprints = new Map<string, number>();
@@ -194,6 +217,9 @@ export function registerMessageCreate(
       recordChannelMessage(channelContextFromDiscordMessage(message, botUserId));
       return;
     }
+
+    // Cross-process dedupe: only one bot instance can claim a Discord message id.
+    if (!claimDelivery(message.id)) return;
 
     const userId = message.author.id;
     const channelId = message.channel.id;

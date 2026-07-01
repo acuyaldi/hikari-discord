@@ -14,6 +14,7 @@ export const data = new SlashCommandBuilder()
         { name: 'Gemini (Default)', value: 'gemini' },
         { name: 'Groq (Cepat)', value: 'groq' },
         { name: 'OpenRouter (Kreatif)', value: 'openrouter' },
+        { name: 'Hugging Face (Backup Gratis)', value: 'huggingface' },
       ),
   );
 

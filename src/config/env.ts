@@ -6,13 +6,22 @@ export const GEMINI_API_KEY      = process.env.GEMINI_API_KEY      ?? '';
 export const GROQ_API_KEY        = process.env.GROQ_API_KEY        ?? '';
 export const SPESIFIK_CHANNEL_ID = process.env.SPESIFIK_CHANNEL_ID ?? '';
 export const OPENROUTER_API_KEY  = process.env.OPENROUTER_API_KEY  ?? '';
+export const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY ?? '';
 export const OPENROUTER_MODELS: string[] = (
-  process.env.OPENROUTER_MODELS ?? 'qwen/qwen3-32b:free,deepseek/deepseek-chat:free,google/gemma-3-27b-it:free'
+  process.env.OPENROUTER_MODELS ?? 'meta-llama/llama-3.3-8b-instruct:free,google/gemma-2-9b-it:free,mistralai/mistral-7b-instruct:free,qwen/qwen2.5-7b-instruct:free'
 )
   .split(',')
   .map((m) => m.trim())
   .filter((m) => m.length > 0);
-export const AI_PROVIDER_ORDER   = process.env.AI_PROVIDER_ORDER   ?? 'gemini,groq,openrouter';
+export const HUGGINGFACE_MODELS: string[] = (
+  process.env.HUGGINGFACE_MODELS ??
+  'meta-llama/Llama-3.1-8B-Instruct,Qwen/Qwen2.5-7B-Instruct,google/gemma-2-9b-it'
+)
+  .split(',')
+  .map((m) => m.trim())
+  .filter((m) => m.length > 0);
+export const OPENROUTER_ALLOW_PAID_FALLBACK = process.env.OPENROUTER_ALLOW_PAID_FALLBACK === 'true';
+export const AI_PROVIDER_ORDER   = process.env.AI_PROVIDER_ORDER   ?? 'gemini,groq,openrouter,huggingface';
 export const CIRCUIT_BREAKER_FAILURE_THRESHOLD = Number.parseInt(
   process.env.CIRCUIT_BREAKER_FAILURE_THRESHOLD ?? '3',
   10,
