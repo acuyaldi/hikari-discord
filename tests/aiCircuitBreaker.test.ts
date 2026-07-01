@@ -117,7 +117,12 @@ test('ProviderManager throws a clear error when every provider is cooling down',
   const breaker = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 300_000 });
   const manager = new ProviderManager({ circuitBreaker: breaker });
 
-  for (const name of [AIProviderName.GEMINI, AIProviderName.GROQ, AIProviderName.OPENROUTER]) {
+  for (const name of [
+    AIProviderName.GEMINI,
+    AIProviderName.GROQ,
+    AIProviderName.OPENROUTER,
+    AIProviderName.HUGGINGFACE,
+  ]) {
     breaker.recordFailure(name, transientError(429));
     manager.registerProvider({
       name,

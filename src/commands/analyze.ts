@@ -35,6 +35,12 @@ export function describeAnalyzeEngine(
       : 'OpenRouter 🌐 (Standar Mode - Fallback)';
   }
 
+  if (provider === AIProviderName.HUGGINGFACE) {
+    return mode === 'mendalam'
+      ? 'Hugging Face 🤗 (Deep Analysis Mode - Fallback)'
+      : 'Hugging Face 🤗 (Standar Mode - Fallback)';
+  }
+
   return mode === 'mendalam'
     ? 'Groq GPT-OSS 20B 🚀 (Deep Analysis Mode - Fallback)'
     : 'Groq GPT-OSS 20B 🚀 (Standar Mode - Fallback)';
@@ -199,7 +205,12 @@ export async function execute(
           dynamicSystemInstruction: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}`,
           hasImage: false,
           taskType: TaskType.GENERAL,
-          preferredProviders: [AIProviderName.OPENROUTER, AIProviderName.GEMINI, AIProviderName.GROQ],
+          preferredProviders: [
+            AIProviderName.OPENROUTER,
+            AIProviderName.HUGGINGFACE,
+            AIProviderName.GEMINI,
+            AIProviderName.GROQ,
+          ],
         });
         resultText = response.replyText;
         engineUsed = describeAnalyzeEngine('mendalam', response.providerUsed, true);
@@ -216,7 +227,12 @@ export async function execute(
         dynamicSystemInstruction,
         hasImage: false,
         taskType: TaskType.GENERAL,
-        preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER, AIProviderName.GROQ],
+        preferredProviders: [
+          AIProviderName.GEMINI,
+          AIProviderName.OPENROUTER,
+          AIProviderName.HUGGINGFACE,
+          AIProviderName.GROQ,
+        ],
       });
       resultText = response.replyText;
       engineUsed = describeAnalyzeEngine('standar', response.providerUsed, response.providerUsed !== AIProviderName.GEMINI);

@@ -2,6 +2,7 @@ export enum AIProviderName {
   GEMINI = 'gemini',
   GROQ = 'groq',
   OPENROUTER = 'openrouter',
+  HUGGINGFACE = 'huggingface',
 }
 
 export enum TaskType {

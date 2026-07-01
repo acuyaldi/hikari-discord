@@ -127,6 +127,18 @@ db.prepare(`
   ON trivia_scores(guild_id, points DESC)
 `).run();
 
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS processed_message_events (
+    message_id  TEXT PRIMARY KEY,
+    created_at  INTEGER NOT NULL
+  )
+`).run();
+
+db.prepare(`
+  CREATE INDEX IF NOT EXISTS idx_processed_message_events_created_at
+  ON processed_message_events(created_at)
+`).run();
+
 db.pragma(`user_version = ${SCHEMA_VERSION}`);
 
 export default db;

@@ -72,6 +72,7 @@ function fallbackCount(value: number | null): string {
 
 function displayName(value: string): string {
   if (value === AIProviderName.OPENROUTER) return 'OpenRouter';
+  if (value === AIProviderName.HUGGINGFACE) return 'Hugging Face';
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 

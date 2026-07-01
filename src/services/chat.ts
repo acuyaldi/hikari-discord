@@ -17,11 +17,33 @@ function preferredProvidersForEngine(
 ): AIProviderName[] | undefined {
   switch (enginePref) {
     case AIProviderName.GEMINI:
-      return [AIProviderName.GEMINI, AIProviderName.OPENROUTER, AIProviderName.GROQ];
+      return [
+        AIProviderName.GEMINI,
+        AIProviderName.OPENROUTER,
+        AIProviderName.HUGGINGFACE,
+        AIProviderName.GROQ,
+      ];
     case AIProviderName.GROQ:
-      return [AIProviderName.GROQ, AIProviderName.GEMINI, AIProviderName.OPENROUTER];
+      return [
+        AIProviderName.GROQ,
+        AIProviderName.GEMINI,
+        AIProviderName.OPENROUTER,
+        AIProviderName.HUGGINGFACE,
+      ];
     case AIProviderName.OPENROUTER:
-      return [AIProviderName.OPENROUTER, AIProviderName.GEMINI, AIProviderName.GROQ];
+      return [
+        AIProviderName.OPENROUTER,
+        AIProviderName.GEMINI,
+        AIProviderName.HUGGINGFACE,
+        AIProviderName.GROQ,
+      ];
+    case AIProviderName.HUGGINGFACE:
+      return [
+        AIProviderName.HUGGINGFACE,
+        AIProviderName.GEMINI,
+        AIProviderName.OPENROUTER,
+        AIProviderName.GROQ,
+      ];
     default:
       return undefined;
   }

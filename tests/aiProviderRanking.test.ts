@@ -215,3 +215,134 @@ test('OpenRouterProvider ranks models before trying them', async () => {
   assert.equal(response.replyText, 'ok');
   assert.deepEqual(triedModels, ['model-b']);
 });
+
+test('OpenRouterProvider retries with suggested slug when free model is unavailable', async () => {
+  resetHealth();
+
+  const { OpenRouterProvider } = await import('../src/services/ai/providers/openrouterProvider');
+  const triedModels: string[] = [];
+
+  const provider = new OpenRouterProvider({
+    apiKey: 'test-key',
+    models: ['qwen/qwen3-32b:free'],
+    allowPaidFallback: true,
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+    client: {
+      chat: {
+        completions: {
+          create: async ({ model }: { model: string }) => {
+            triedModels.push(model);
+            if (model.endsWith(':free')) {
+              const error = new Error(
+                '404 This model is unavailable for free. The paid version is available now - use this slug instead: qwen/qwen3-32b',
+              ) as Error & { status: number };
+              error.status = 404;
+              throw error;
+            }
+            return { choices: [{ message: { content: 'ok from suggested slug' } }] };
+          },
+        },
+      },
+    },
+  });
+
+  const response = await provider.generate(request(TaskType.CODING));
+
+  assert.equal(response.replyText, 'ok from suggested slug');
+  assert.deepEqual(triedModels, ['qwen/qwen3-32b:free', 'qwen/qwen3-32b']);
+});
+
+test('OpenRouterProvider skips paid suggested slug when paid fallback is disabled', async () => {
+  resetHealth();
+
+  const { OpenRouterProvider } = await import('../src/services/ai/providers/openrouterProvider');
+  const triedModels: string[] = [];
+
+  const provider = new OpenRouterProvider({
+    apiKey: 'test-key',
+    models: ['qwen/qwen3-32b:free', 'google/gemma-2-9b-it:free'],
+    allowPaidFallback: false,
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+    client: {
+      chat: {
+        completions: {
+          create: async ({ model }: { model: string }) => {
+            triedModels.push(model);
+            if (model === 'qwen/qwen3-32b:free') {
+              const error = new Error(
+                '404 This model is unavailable for free. The paid version is available now - use this slug instead: qwen/qwen3-32b',
+              ) as Error & { status: number };
+              error.status = 404;
+              throw error;
+            }
+            return { choices: [{ message: { content: 'ok from free fallback' } }] };
+          },
+        },
+      },
+    },
+  });
+
+  const response = await provider.generate(request(TaskType.CODING));
+
+  assert.equal(response.replyText, 'ok from free fallback');
+  assert.deepEqual(triedModels, ['qwen/qwen3-32b:free', 'google/gemma-2-9b-it:free']);
+});
+
+test('HuggingFaceProvider ranks models before trying them', async () => {
+  resetHealth();
+  recordHealthFailure('huggingface:model-a', transientError(503), true);
+  recordHealthSuccess('huggingface:model-b', 50);
+
+  const { HuggingFaceProvider } = await import('../src/services/ai/providers/huggingFaceProvider');
+  const triedModels: string[] = [];
+
+  const provider = new HuggingFaceProvider({
+    apiKey: 'hf_test-key',
+    models: ['model-a', 'model-b'],
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+    client: {
+      chat: {
+        completions: {
+          create: async ({ model }: { model: string }) => {
+            triedModels.push(model);
+            return { choices: [{ message: { content: 'ok' } }] };
+          },
+        },
+      },
+    },
+  });
+
+  const response = await provider.generate(request(TaskType.CODING));
+
+  assert.equal(response.replyText, 'ok');
+  assert.deepEqual(triedModels, ['model-b']);
+});
+
+test('HuggingFaceProvider falls back to next model on transient failure', async () => {
+  resetHealth();
+
+  const { HuggingFaceProvider } = await import('../src/services/ai/providers/huggingFaceProvider');
+  const triedModels: string[] = [];
+
+  const provider = new HuggingFaceProvider({
+    apiKey: 'hf_test-key',
+    models: ['model-a', 'model-b'],
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+    client: {
+      chat: {
+        completions: {
+          create: async ({ model }: { model: string }) => {
+            triedModels.push(model);
+            if (model === 'model-a') throw transientError(503);
+            return { choices: [{ message: { content: 'ok from model-b' } }] };
+          },
+        },
+      },
+    },
+  });
+
+  const response = await provider.generate(request(TaskType.CODING));
+
+  assert.equal(response.replyText, 'ok from model-b');
+  assert.deepEqual(triedModels, ['model-a', 'model-b']);
+});
