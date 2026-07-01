@@ -21,6 +21,10 @@ export const CIRCUIT_BREAKER_COOLDOWN_MS = Number.parseInt(
   process.env.CIRCUIT_BREAKER_COOLDOWN_MS ?? '300000',
   10,
 );
+export const COOLDOWN_SECONDS = Number.parseInt(
+  process.env.COOLDOWN_SECONDS ?? '4',
+  10,
+);
 export const SUMMARY_TRIGGER_MESSAGE_COUNT = Number.parseInt(
   process.env.SUMMARY_TRIGGER_MESSAGE_COUNT ?? '50',
   10,
@@ -41,8 +45,11 @@ export const ADAPTIVE_HISTORY_WINDOW_SIZE = Number.parseInt(
   process.env.ADAPTIVE_HISTORY_WINDOW_SIZE ?? '20',
   10,
 );
-export const SUMMARY_MODEL = process.env.SUMMARY_MODEL ?? 'gemini-2.0-flash-lite';
+export const SUMMARY_MODEL = process.env.SUMMARY_MODEL ?? 'gemini-2.5-flash-lite';
+export const MEMORY_DETECTOR_MODEL = process.env.MEMORY_DETECTOR_MODEL ?? 'gemini-2.5-flash-lite';
 export const DEBUG_SUMMARY = process.env.DEBUG_SUMMARY === 'true';
+export const DEBUG_AI = process.env.DEBUG_AI === 'true';
+export const DEBUG_MEMORY = process.env.DEBUG_MEMORY === 'true';
 export const IMAGE_MAX_SIZE_MB = Number.parseInt(
   process.env.IMAGE_MAX_SIZE_MB ?? '10',
   10,
