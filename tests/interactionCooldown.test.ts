@@ -31,8 +31,17 @@ function createInteraction(commandName: string, userId: string) {
   const interaction = {
     commandName,
     user: { id: userId },
+    deferred: false,
+    replied: false,
     isChatInputCommand: () => true,
     reply: async (payload: string | InteractionReplyOptions) => {
+      interaction.replied = true;
+      replies.push(payload);
+    },
+    editReply: async (payload: string | InteractionReplyOptions) => {
+      replies.push(payload);
+    },
+    followUp: async (payload: string | InteractionReplyOptions) => {
       replies.push(payload);
     },
   } as unknown as ChatInputCommandInteraction;
@@ -103,4 +112,54 @@ test('non-AI slash commands are not gated by the AI cooldown', async () => {
   await harness.dispatch(createInteraction('memory', 'user-memory').interaction);
 
   assert.equal(memoryCalls, 2);
+});
+
+test('command execution failures are swallowed and fall back to an error reply', async () => {
+  clearCooldowns();
+  const harness = createClientHarness();
+  const { interaction, replies } = createInteraction('reset', 'user-reset');
+
+  registerInteractionCreate(harness.client as never, [
+    {
+      data: {
+        name: 'reset',
+        toJSON: () => ({ name: 'reset' }),
+      },
+      execute: async () => {
+        throw new Error('database offline');
+      },
+    },
+  ]);
+
+  await assert.doesNotReject(async () => {
+    await harness.dispatch(interaction);
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(String((replies[0] as InteractionReplyOptions).content ?? replies[0]), /gagal|gomennasai/i);
+});
+
+test('interaction reply failures do not escape the interaction handler', async () => {
+  clearCooldowns();
+  const harness = createClientHarness();
+  const { interaction } = createInteraction('reset', 'user-reset');
+  interaction.reply = async () => {
+    throw Object.assign(new Error('Unknown interaction'), { code: 10062, status: 404 });
+  };
+
+  registerInteractionCreate(harness.client as never, [
+    {
+      data: {
+        name: 'reset',
+        toJSON: () => ({ name: 'reset' }),
+      },
+      execute: async (currentInteraction) => {
+        await currentInteraction.reply('done');
+      },
+    },
+  ]);
+
+  await assert.doesNotReject(async () => {
+    await harness.dispatch(interaction);
+  });
 });
