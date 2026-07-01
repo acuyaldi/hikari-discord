@@ -119,6 +119,14 @@ function recentChannelMessages(channelId: string, excludeId: string): ChannelCon
   return (channelHistory.get(channelId) ?? []).filter((message) => message.id !== excludeId);
 }
 
+export function getChannelTranscript(
+  channelId: string,
+  limit: number,
+  excludeId = '',
+): ChannelContextMessage[] {
+  return recentChannelMessages(channelId, excludeId).slice(-Math.max(0, limit));
+}
+
 function findMentionedMessage(
   channelId: string,
   mention: MentionContextUser,

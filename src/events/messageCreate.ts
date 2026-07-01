@@ -1,12 +1,16 @@
 import { AttachmentBuilder, Client, Message } from 'discord.js';
 
-import { SPESIFIK_CHANNEL_ID } from '../config/env';
+import {
+  SPESIFIK_CHANNEL_ID,
+  SUMMARY_MAX_INPUT_MESSAGES,
+} from '../config/env';
 import { splitMessage } from '../utils/splitmessage';
 import { generateVoice } from '../services/tts';
 import { hasVoiceIntent } from '../services/ttsIntent';
 import { checkCooldown } from '../utils/cooldown';
 import { chat } from '../services/chat';
 import { runMemoryPipeline } from '../services/memory/memoryPipeline';
+import { logSummary } from '../services/summary/summaryDebug';
 import { maybeRunSummaryPipeline } from '../services/summary/summaryPipeline';
 import {
   getImageAttachmentRejection,
@@ -14,6 +18,7 @@ import {
 } from '../services/imageAnalysis';
 import {
   buildMultiUserContext,
+  getChannelTranscript,
   recordChannelMessage,
   type ChannelContextMessage,
   type MentionContextUser,
@@ -27,6 +32,21 @@ interface ReplyWithOptionalVoiceOptions {
   send: (payload: string) => Promise<unknown>;
   detectVoiceIntent?: (messageText: string) => boolean;
   generateVoice?: (text: string) => Promise<AttachmentBuilder | null>;
+}
+
+interface RegisterMessageCreateDependencies {
+  checkCooldown?: typeof checkCooldown;
+  chat?: typeof chat;
+  runMemoryPipeline?: typeof runMemoryPipeline;
+  maybeRunSummaryPipeline?: typeof maybeRunSummaryPipeline;
+  buildMultiUserContext?: typeof buildMultiUserContext;
+  getChannelTranscript?: typeof getChannelTranscript;
+}
+
+interface BuildSummaryRecentMessagesOptions {
+  maxInputMessages?: number;
+  getTranscript?: typeof getChannelTranscript;
+  logSummary?: typeof logSummary;
 }
 
 export async function sendReplyWithOptionalVoice({
@@ -93,7 +113,51 @@ function mentionedUsersForContext(message: Message, botUserId: string): MentionC
     }));
 }
 
-export function registerMessageCreate(client: Client): void {
+function summaryMessageLabel(message: Pick<ChannelContextMessage, 'authorName' | 'role'>): string {
+  const authorName = message.authorName.trim();
+  if (authorName.length > 0) return `@${authorName}`;
+  return message.role === 'assistant' ? '@Assistant' : '@User';
+}
+
+export function buildSummaryRecentMessages(
+  channelId: string,
+  userMessageText: string,
+  options: BuildSummaryRecentMessagesOptions = {},
+): string[] {
+  const getTranscript = options.getTranscript ?? getChannelTranscript;
+  const writeSummaryLog = options.logSummary ?? logSummary;
+  try {
+    const transcript = getTranscript(
+      channelId,
+      options.maxInputMessages ?? SUMMARY_MAX_INPUT_MESSAGES,
+    )
+      .map((message) => `${summaryMessageLabel(message)}: ${message.content.trim()}`)
+      .filter((message) => message.trim().length > 0);
+
+    const recentMessages = transcript.length > 0 ? transcript : [userMessageText];
+    writeSummaryLog('Summary Pipeline Input', `recentMessages count: ${recentMessages.length}`);
+    return recentMessages;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    writeSummaryLog(
+      'Summary Pipeline Input',
+      `recentMessages fallback count: 1 reason=${reason}`,
+    );
+    return [userMessageText];
+  }
+}
+
+export function registerMessageCreate(
+  client: Client,
+  dependencies: RegisterMessageCreateDependencies = {},
+): void {
+  const cooldownCheck = dependencies.checkCooldown ?? checkCooldown;
+  const runChat = dependencies.chat ?? chat;
+  const runSummaryPipeline = dependencies.maybeRunSummaryPipeline ?? maybeRunSummaryPipeline;
+  const runMemory = dependencies.runMemoryPipeline ?? runMemoryPipeline;
+  const buildContext = dependencies.buildMultiUserContext ?? buildMultiUserContext;
+  const getTranscript = dependencies.getChannelTranscript ?? getChannelTranscript;
+
   client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     const botUser = client.user!;
@@ -106,7 +170,7 @@ export function registerMessageCreate(client: Client): void {
     const userId = message.author.id;
     const channelId = message.channel.id;
 
-    if (checkCooldown(userId)) return;
+    if (cooldownCheck(userId)) return;
 
     let promptText = message.content
       .replace(new RegExp(`<@!?${botUserId}>`, 'g'), '')
@@ -138,7 +202,7 @@ export function registerMessageCreate(client: Client): void {
 
     try {
       await message.channel.sendTyping();
-      const multiUserContext = await buildMultiUserContext({
+      const multiUserContext = await buildContext({
         channelId,
         messageId: message.id,
         authorId: message.author.id,
@@ -155,7 +219,7 @@ export function registerMessageCreate(client: Client): void {
         content: promptText,
       });
 
-      const result = await chat({
+      const result = await runChat({
         userId,
         guildId: message.guildId,
         channelId,
@@ -176,12 +240,13 @@ export function registerMessageCreate(client: Client): void {
           role: 'assistant',
           content: result.earlyReply,
         });
-        void maybeRunSummaryPipeline({
+        void runSummaryPipeline({
           userId,
           guildId: message.guildId,
           messageText: userMessageText,
-          // TODO Sprint 3D: pass richer recent in-memory chat history when available.
-          recentMessages: [userMessageText],
+          recentMessages: buildSummaryRecentMessages(channelId, userMessageText, {
+            getTranscript,
+          }),
         });
         return;
       }
@@ -202,13 +267,14 @@ export function registerMessageCreate(client: Client): void {
         content: result.replyText,
       });
 
-      void runMemoryPipeline(userId, message.guildId, userMessageText);
-      void maybeRunSummaryPipeline({
+      void runMemory(userId, message.guildId, userMessageText);
+      void runSummaryPipeline({
         userId,
         guildId: message.guildId,
         messageText: userMessageText,
-        // TODO Sprint 3D: pass richer recent in-memory chat history when available.
-        recentMessages: [userMessageText],
+        recentMessages: buildSummaryRecentMessages(channelId, userMessageText, {
+          getTranscript,
+        }),
       });
     } catch (error) {
       await message.reply('Gomennasai Senpai... Sirkuit otak Hikari sedang korsleting! 🥺💢');
