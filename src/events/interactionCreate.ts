@@ -64,6 +64,9 @@ export function registerInteractionCreate(client: Client, allCommands: Command[]
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
+    const interactionAgeMs = Date.now() - interaction.createdTimestamp;
+    const interactionMeta = `user=${interaction.user.id} guild=${interaction.guildId ?? 'dm'} channel=${interaction.channelId ?? 'unknown'} ageMs=${interactionAgeMs} pid=${process.pid}`;
+
     try {
       const cmd = allCommands.find((c) => c.data.name === interaction.commandName);
       if (!cmd) return;
@@ -77,11 +80,11 @@ export function registerInteractionCreate(client: Client, allCommands: Command[]
       await cmd.execute(interaction, { db });
     } catch (error) {
       console.error(
-        `[InteractionCreate] command failed: ${interaction.commandName} deferred=${interaction.deferred === true} replied=${interaction.replied === true}`,
+        `[InteractionCreate] command failed: ${interaction.commandName} deferred=${interaction.deferred === true} replied=${interaction.replied === true} ${interactionMeta}`,
         error,
       );
       if (isUnknownInteractionError(error)) {
-        console.error('[InteractionCreate] interaction expired before a response could be sent');
+        console.error(`[InteractionCreate] interaction expired before a response could be sent ${interactionMeta}`);
         return;
       }
       await safeInteractionErrorReply(interaction);

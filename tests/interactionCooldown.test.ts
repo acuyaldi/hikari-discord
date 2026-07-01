@@ -30,6 +30,9 @@ function createInteraction(commandName: string, userId: string) {
   const replies: Array<string | InteractionReplyOptions> = [];
   const interaction = {
     commandName,
+    channelId: 'channel-1',
+    guildId: 'guild-1',
+    createdTimestamp: Date.now(),
     user: { id: userId },
     deferred: false,
     replied: false,
@@ -198,6 +201,44 @@ test('unknown interaction errors do not trigger an additional fallback reply att
   });
 
   assert.equal(replies.length, 0);
+});
+
+test('AI command defer failures log interaction age details before exiting', async () => {
+  clearCooldowns();
+  const originalNow = Date.now;
+  Date.now = () => 10_000;
+
+  const harness = createClientHarness();
+  const { interaction } = createInteraction('analyze', 'user-analyze');
+  const deferAges: string[] = [];
+  (interaction as unknown as { createdTimestamp: number }).createdTimestamp = 6_500;
+  interaction.deferReply = async () => {
+    throw Object.assign(new Error('Unknown interaction'), { code: 10062, status: 404 });
+  };
+
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    deferAges.push(args.map(String).join(' '));
+  };
+
+  registerInteractionCreate(harness.client as never, [
+    createCommand('analyze', () => {
+      throw new Error('should not execute');
+    }),
+  ]);
+
+  try {
+    await assert.doesNotReject(async () => {
+      await harness.dispatch(interaction);
+    });
+  } finally {
+    console.error = originalError;
+    Date.now = originalNow;
+  }
+
+  assert.match(deferAges.join('\n'), /ageMs=3500/);
+  assert.match(deferAges.join('\n'), /channel=channel-1/);
+  assert.match(deferAges.join('\n'), /guild=guild-1/);
 });
 
 test('fallback switches to editReply when reply says interaction was already acknowledged', async () => {
