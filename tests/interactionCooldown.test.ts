@@ -163,3 +163,39 @@ test('interaction reply failures do not escape the interaction handler', async (
     await harness.dispatch(interaction);
   });
 });
+
+test('fallback switches to editReply when reply says interaction was already acknowledged', async () => {
+  clearCooldowns();
+  const harness = createClientHarness();
+  const { interaction, replies } = createInteraction('analyze', 'user-analyze');
+  interaction.reply = async () => {
+    throw Object.assign(new Error('Interaction has already been acknowledged.'), {
+      code: 40060,
+      status: 400,
+    });
+  };
+  (interaction as unknown as {
+    editReply: (payload: string | InteractionReplyOptions) => Promise<void>;
+  }).editReply = async (payload: string | InteractionReplyOptions) => {
+    replies.push(payload);
+  };
+
+  registerInteractionCreate(harness.client as never, [
+    {
+      data: {
+        name: 'analyze',
+        toJSON: () => ({ name: 'analyze' }),
+      },
+      execute: async (currentInteraction) => {
+        await currentInteraction.reply('first ack');
+      },
+    },
+  ]);
+
+  await assert.doesNotReject(async () => {
+    await harness.dispatch(interaction);
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(String((replies[0] as InteractionReplyOptions).content ?? replies[0]), /gagal|gomennasai/i);
+});
