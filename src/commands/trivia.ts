@@ -4,6 +4,7 @@ import {
   ButtonStyle,
   ComponentType,
   EmbedBuilder,
+  PermissionFlagsBits,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
   type Message,
@@ -49,12 +50,53 @@ const DEFAULT_FALLBACK_QUESTION: TriviaQuestion = {
 
 const TRIVIA_MODEL = 'gemini-1.5-flash';
 
-const TRIVIA_SYSTEM_INSTRUCTION =
-  'Generate a single, interesting general knowledge trivia question in Indonesian. Provide 4 multiple-choice options labeled A, B, C, and D. You must output the result strictly in this JSON format:\n{\n  "kategori": "Nama Kategori",\n  "soal": "Teks pertanyaan di sini?",\n  "pilihan": ["A. Pilihan satu", "B. Pilihan dua", "C. Pilihan tiga", "D. Pilihan empat"],\n  "jawaban_benar": "A" (Must be only \'A\', \'B\', \'C\', or \'D\')\n}';
+const TRIVIA_SYSTEM_INSTRUCTION = [
+  'You are an elite quiz master engine for a popular Indonesian TV show like "Ranking 1" or "Who Wants to Be a Millionaire".',
+  'Your job is to generate exactly ONE high-quality, engaging trivia question in Indonesian (Bahasa Indonesia) adhering STRICTLY to the RPUL (Rangkuman Pengetahuan Umum Lengkap) curriculum.',
+  '',
+  '=== CORE THEMES (Pick one randomly per request) ===',
+  '- Geography: National & international capitals, famous landmarks, natural wonders, province facts.',
+  '- History: Indonesian national heroes, ancient kingdoms (Majapahit, Sriwijaya, etc.), crucial world war events.',
+  '- Culture: Traditional fabrics (Batik/Ulos), regional houses, indigenous musical instruments, dances.',
+  '- Basic Science & Space: Famous inventors, solar system, primary school level biology/physics/chemistry.',
+  '- Civics & Global Agencies: ASEAN, United Nations, national state symbols, well-known acronyms.',
+  '',
+  '=== DIFFICULTY & STYLE CRITERIA ===',
+  '- Target audience: General audience with school-level knowledge (SMP/SMA).',
+  '- The question must be a verifiable fact, logical, and educational.',
+  '- DO NOT ask about obscure pop-culture, minor local politicians, specific release dates of novels/movies, or overly niche statistics.',
+  '',
+  '=== STRICT OUTPUT FORMATTING ===',
+  '- You must output raw JSON ONLY. No markdown wrappers (like ```json), no conversational text, no trailing explanations.',
+  '- The "pilihan" array MUST consist of exactly 4 strings.',
+  '- CRITICAL: Each item inside the "pilihan" array MUST strictly start with its respective uppercase letter prefix followed by a dot and a space. For example: "A. [Text]", "B. [Text]", "C. [Text]", "D. [Text]". Failure to include the "X. " prefix will crash the parsing engine.',
+  '- The "jawaban_benar" field must contain exactly one uppercase letter: "A", "B", "C", or "D".',
+  '',
+  '=== JSON SCHEMA TEMPLATE ===',
+  '{"kategori": "Nama Kategori", "soal": "Teks pertanyaan?", "pilihan": ["A. Opsi Satu", "B. Opsi Dua", "C. Opsi Tiga", "D. Opsi Empat"], "jawaban_benar": "A"}',
+].join('\n');
 
 export const data = new SlashCommandBuilder()
   .setName('trivia')
-  .setDescription('Mainkan sesi trivia cepat-cepatan (default 5 soal)');
+  .setDescription('Mainkan sesi trivia cepat-cepatan (default 5 soal)')
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('mulai')
+      .setDescription('Mulai sesi trivia baru')
+      .addIntegerOption((option) =>
+        option
+          .setName('soal')
+          .setDescription('Jumlah soal untuk sesi ini (default 5)')
+          .setRequired(false)
+          .setMinValue(1)
+          .setMaxValue(15),
+      ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName('reset')
+      .setDescription('Reset skor trivia server ini (khusus admin/manager server)'),
+  );
 
 function sanitizeJsonResponse(raw: string): string {
   const trimmed = raw.trim();
@@ -153,6 +195,15 @@ function questionKey(question: TriviaQuestion): string {
 }
 
 function ensureTriviaRecentQuestionTable(db: CommandContext['db']): void {
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS trivia_scores (
+      guild_id TEXT NOT NULL,
+      user_id  TEXT NOT NULL,
+      points   INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_id)
+    )`,
+  ).run();
+
   db.prepare(
     `CREATE TABLE IF NOT EXISTS trivia_recent_questions (
       guild_id TEXT NOT NULL,
@@ -363,22 +414,22 @@ function buildQuestionEmbed(
   timeStatus: string,
   roundLabel: string,
 ): EmbedBuilder {
-  const optionsText = question.pilihan.map((choice) => `• ${choice}`).join('\n');
+  // Menggunakan garis vertikal pembatas dan spasi ganda agar renggang dan enak dibaca
+  const optionsText = question.pilihan.map((choice) => `┃ **${choice}**`).join('\n\n');
 
   return new EmbedBuilder()
-    .setColor(0x3498db)
-    .setTitle(`🧠 Trivia Kilat • Ronde ${roundLabel}`)
-    .setDescription(`**${question.soal}**\n\n${optionsText}`)
-    .addFields(
-      { name: 'Kategori', value: question.kategori, inline: true },
-      { name: 'Waktu', value: timeStatus, inline: true },
-      {
-        name: 'Cara Main',
-        value: 'Klik tombol A/B/C/D sekali untuk mengunci jawabanmu sebelum waktu habis.',
-        inline: false,
-      },
+    .setColor(0x2f3136) // Warna Dark Theme minimalis ala bot premium
+    .setAuthor({ name: `🧠 TRIVIA KILAT • RONDE ${roundLabel}` })
+    .setDescription(
+      `#️⃣ \`Kategori: ${question.kategori}\`\n\n` +
+      `### ${question.soal}\n\n` + // Sub-header untuk memperbesar font soal
+      `━─━─━─━─━─━─━─━─━─━─━─━─━─━─━─━\n\n` +
+      `${optionsText}\n\n` +
+      `━─━─━─━─━─━─━─━─━─━─━─━─━─━─━─━\n\n` +
+      `${timeStatus}\n` +
+      `👤 *Klik tombol di bawah untuk mengunci jawabanmu!*`
     )
-    .setFooter({ text: 'Jawaban terkunci setelah klik • Menunggu rekap di akhir ronde' });
+    .setFooter({ text: 'Sistem Terkunci • Tercepat Dia Dapat • Pengetahuan Umum' });
 }
 
 function buildResultEmbed(
@@ -394,44 +445,38 @@ function buildResultEmbed(
 ): EmbedBuilder {
   const endTimeStatus = options.timedOut ? '⏱️ **Waktu Habis!**' : '⏱️ **Ronde Selesai**';
   const embed = buildQuestionEmbed(question, endTimeStatus, options.roundLabel);
+  
   const nextRoundText =
     options.nextRoundStartSeconds !== undefined
-      ? `\n\n➡️ Ronde berikutnya mulai <t:${options.nextRoundStartSeconds}:R>. Bersiap!`
-      : '';
+      ? `\n\n➡️ *Ronde berikutnya mulai <t:${options.nextRoundStartSeconds}:R>. Bersiap!*`
+      : '\n\n🏁 *Sesi kuis telah berakhir! Sila periksa papan peringkat.*';
+
   const participantSummary =
     options.answerSummaries.length > 0
-      ? `\n\n**Ringkasan Jawaban Pemain**\n${options.answerSummaries.join('\n')}`
-      : '\n\nBelum ada pemain yang mengunci jawaban di ronde ini.';
+      ? `\n\n📊 **Ringkasan Jawaban Pemain:**\n${options.answerSummaries.join('\n')}`
+      : '\n\n💤 *Belum ada pemain yang mengunci jawaban di ronde ini.*';
 
+  // Desain ulang konten rekap agar terstruktur rapi di dalam deskripsi
+  embed.setDescription(
+    `#️⃣ \`Kategori: ${question.kategori}\`\n\n` +
+    `### ${question.soal}\n\n` +
+    `━─━─━─━─━─━─━─━─━─━─━─━─━─━─━─━\n\n` +
+    `💡 Jawaban Benar: **${question.jawaban_benar}**\n` +
+    `✅ Benar: **${options.correctUserIds.length}** pemain (+${CORRECT_ANSWER_POINTS} Poin)\n` +
+    `❌ Salah: **${options.wrongUserIds.length}** pemain (${WRONG_ANSWER_POINTS} Poin)` +
+    `${participantSummary}` +
+    `${nextRoundText}`
+  );
+
+  // Berikan warna hijau jika ada yang benar, merah jika waktu habis total tanpa jawaban
   if (options.correctUserIds.length > 0) {
-    embed
-      .setColor(0x57f287)
-      .setTitle('🏁 Trivia Selesai')
-      .setDescription(
-        [
-          `Jawaban benar: **${question.jawaban_benar}**`,
-          `Benar: ${options.correctUserIds.length} pemain (+${CORRECT_ANSWER_POINTS} poin)`,
-          `Salah: ${options.wrongUserIds.length} pemain (${WRONG_ANSWER_POINTS} poin)`,
-          participantSummary,
-          nextRoundText,
-        ]
-          .filter((line) => line.length > 0)
-          .join('\n'),
-      );
-    return embed;
+    embed.setColor(0x57f287);
+  } else if (options.timedOut && options.answerSummaries.length === 0) {
+    embed.setColor(0xed4245);
+  } else {
+    embed.setColor(0xe67e22); // Orange jika ada yang ikut tapi salah semua
   }
 
-  if (options.timedOut) {
-    embed
-      .setColor(0xed4245)
-      .setTitle('⏰ Waktu Habis')
-      .setDescription(
-        `Tidak ada yang benar kali ini. Jawaban benar: **${question.jawaban_benar}**${participantSummary}${nextRoundText}`,
-      );
-    return embed;
-  }
-
-  embed.setDescription(`Jawaban benar: **${question.jawaban_benar}**${participantSummary}${nextRoundText}`);
   return embed;
 }
 
@@ -446,7 +491,7 @@ function addPoints(db: CommandContext['db'], guildId: string, userId: string, de
     `INSERT INTO trivia_scores (guild_id, user_id, points)
      VALUES (?, ?, ?)
      ON CONFLICT(guild_id, user_id)
-     DO UPDATE SET points = points + excluded.points`,
+     DO UPDATE SET points = MAX(0, points + excluded.points)`,
   ).run(guildId, userId, delta);
 }
 
@@ -458,9 +503,54 @@ function delay(ms: number): Promise<void> {
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
+  context: CommandContext,
+): Promise<void> {
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === 'reset') {
+    await executeReset(interaction, context);
+    return;
+  }
+
+  const questionCount = interaction.options.getInteger('soal') ?? DEFAULT_SESSION_QUESTION_COUNT;
+  await executeTrivia(interaction, context, { questionCount });
+}
+
+export async function executeReset(
+  interaction: ChatInputCommandInteraction,
   { db }: CommandContext,
 ): Promise<void> {
-  await executeTrivia(interaction, { db });
+  if (!interaction.guildId) {
+    await interaction.reply({
+      content: 'Reset skor trivia hanya bisa dipakai di server.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const hasPermission = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
+  if (!hasPermission) {
+    await interaction.reply({
+      content: 'Kamu butuh permission Manage Server untuk reset skor trivia.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  try {
+    ensureTriviaRecentQuestionTable(db);
+    db.prepare('DELETE FROM trivia_scores WHERE guild_id = ?').run(interaction.guildId);
+    await interaction.reply({
+      content: 'Skor trivia untuk server ini berhasil direset.',
+      ephemeral: true,
+    });
+  } catch (error) {
+    console.error('[Trivia] failed to reset scores:', error);
+    await interaction.reply({
+      content: 'Gagal reset skor trivia. Coba lagi sebentar.',
+      ephemeral: true,
+    });
+  }
 }
 
 export async function executeTrivia(

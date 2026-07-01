@@ -471,7 +471,7 @@ test('trivia result shows correct answer and per-user point breakdown', async ()
     | undefined;
   const description = lastPayload?.embeds?.[0]?.toJSON().description ?? '';
 
-  assert.match(description, /Jawaban benar: \*\*C\*\*/);
+  assert.match(description, /Jawaban Benar: \*\*C\*\*/);
   assert.match(description, /<@user-a> pilih \*\*C\*\* -> ✅ \+10/);
   assert.match(description, /<@user-b> pilih \*\*A\*\* -> ❌ -5/);
   db.close();
