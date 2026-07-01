@@ -94,26 +94,3 @@ export function resetProviderMetrics(): void {
   modelStats.clear();
 }
 
-export function getStats(): string {
-  if (stats.size === 0) return 'No provider stats yet.';
-
-  return Array.from(stats.entries())
-    .map(([name, s]) => {
-      const avg = s.success > 0 ? Math.round(s.totalLatencyMs / s.success) : 0;
-      const lines = [
-        `**${name.toUpperCase()}**`,
-        `Success: ${s.success} | Failure: ${s.failure}`,
-        `Avg Latency: ${avg} ms`,
-      ];
-
-      if (name === AIProviderName.OPENROUTER && modelStats.size > 0) {
-        for (const [model, ms] of modelStats.entries()) {
-          const mAvg = ms.success > 0 ? Math.round(ms.totalLatencyMs / ms.success) : 0;
-          lines.push(`  • \`${model}\`: ✓${ms.success} ✗${ms.failure} avg ${mAvg}ms`);
-        }
-      }
-
-      return lines.join('\n');
-    })
-    .join('\n\n---\n\n');
-}

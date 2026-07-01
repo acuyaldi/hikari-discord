@@ -247,33 +247,6 @@ export function getMemoryById(id: number): Result<MemoryRow | null> {
 }
 
 /**
- * Looks up a memory by its natural key: (user_id, category, normalized memory text).
- * `data` is `null` when no matching row exists.
- *
- * The memory parameter is normalized internally — callers may pass raw text.
- *
- * @param userId   - Discord user ID
- * @param category - Memory category
- * @param memory   - Raw or already-normalized memory text
- */
-export function getMemoryByContent(
-  userId: string,
-  category: MemoryCategory,
-  memory: string,
-): Result<MemoryRow | null> {
-  try {
-    const row = stmts.getByContent.get(
-      userId,
-      category,
-      normalizeMemory(memory),
-    ) as Record<string, unknown> | undefined;
-    return ok(row ? mapRowToMemory(row) : null);
-  } catch (err) {
-    return fail(err);
-  }
-}
-
-/**
  * Returns all memories for a user ordered by importance DESC, updated_at DESC.
  *
  * When `category` is provided the query uses the composite index
