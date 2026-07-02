@@ -18,6 +18,7 @@ function createCommandInteraction(input: {
   canManageGuild?: boolean;
 }) {
   const replies: Array<InteractionReplyOptions> = [];
+  const replyMessage = { id: 'lobby-message-1' };
   const interaction = {
     guildId: 'guild-1',
     channelId: 'channel-1',
@@ -32,10 +33,25 @@ function createCommandInteraction(input: {
     reply: async (payload: InteractionReplyOptions) => {
       replies.push(payload);
     },
+    fetchReply: async () => replyMessage,
   };
 
   return { interaction, replies };
 }
+
+test('susunkata tracks the lobby message id on the room', async () => {
+  resetSusunKataRoomsForTest();
+  const { interaction } = createCommandInteraction({
+    rounds: 3,
+  });
+
+  await execute(interaction as never, {} as never);
+
+  assert.deepEqual(
+    (getRoom('channel-1') as unknown as { sentMessageIds: string[] }).sentMessageIds,
+    ['lobby-message-1'],
+  );
+});
 
 test('susunkata force_clear destroys a stuck room for a server manager', async () => {
   resetSusunKataRoomsForTest();

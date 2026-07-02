@@ -2,7 +2,12 @@ import { PermissionFlagsBits, SlashCommandBuilder, type ChatInputCommandInteract
 
 import { SUSUNKATA_MAX_ROUNDS } from '../config/env';
 import type { CommandContext } from '../types';
-import { createRoom, destroyRoom, getRoom } from '../services/games/susunkata/roomManager';
+import {
+  createRoom,
+  destroyRoom,
+  getRoom,
+  trackRoomMessage,
+} from '../services/games/susunkata/roomManager';
 import {
   createSusunKataLobbyComponents,
   createSusunKataLobbyEmbed,
@@ -77,6 +82,9 @@ export async function execute(
       ],
       components: createSusunKataLobbyComponents(interaction.channelId),
     });
+
+    const lobbyMessage = await interaction.fetchReply().catch(() => null);
+    trackRoomMessage(interaction.channelId, lobbyMessage?.id);
   } catch {
     await interaction.reply({
       content: 'Masih ada room Susun Kata aktif di channel ini. Selesaikan atau batalkan dulu ya.',

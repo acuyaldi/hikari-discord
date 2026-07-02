@@ -31,15 +31,35 @@ function createTriviaScoresTable(db: Database.Database): void {
 function createClientHarness() {
   const sentPayloads: unknown[] = [];
   const editedPayloads: unknown[] = [];
+  const deletedMessageIds: string[] = [];
+  const messages = new Map<string, {
+    id: string;
+    edit: (payload: unknown) => Promise<void>;
+    delete: () => Promise<void>;
+  }>();
+  let nextMessageNumber = 1;
   const channel = {
     id: 'channel-1',
     send: async (payload: unknown) => {
       sentPayloads.push(payload);
-      return {
+      const message = {
+        id: `message-${nextMessageNumber++}`,
         edit: async (editPayload: unknown) => {
           editedPayloads.push(editPayload);
         },
+        delete: async () => {
+          deletedMessageIds.push(message.id);
+        },
       };
+      messages.set(message.id, message);
+      return message;
+    },
+    messages: {
+      fetch: async (messageId: string) => {
+        const message = messages.get(messageId);
+        if (!message) throw new Error('message not found');
+        return message;
+      },
     },
   };
   const client = {
@@ -47,26 +67,44 @@ function createClientHarness() {
       fetch: async (channelId: string) => (channelId === 'channel-1' ? channel : null),
     },
   };
-  return { client, sentPayloads, editedPayloads };
+  return { client, sentPayloads, editedPayloads, deletedMessageIds, messages };
 }
 
-function createClientHarnessWithFailingFirstEdit() {
+function createClientHarnessWithOneDeleteFailure() {
   const sentPayloads: unknown[] = [];
   const editedPayloads: unknown[] = [];
-  let editCalls = 0;
+  const attemptedDeleteIds: string[] = [];
+  const deletedMessageIds: string[] = [];
+  const messages = new Map<string, {
+    id: string;
+    edit: (payload: unknown) => Promise<void>;
+    delete: () => Promise<void>;
+  }>();
+  let nextMessageNumber = 1;
   const channel = {
     id: 'channel-1',
     send: async (payload: unknown) => {
       sentPayloads.push(payload);
-      return {
+      const message = {
+        id: `message-${nextMessageNumber++}`,
         edit: async (editPayload: unknown) => {
-          editCalls += 1;
-          if (editCalls === 1) {
-            throw new Error('message deleted');
-          }
           editedPayloads.push(editPayload);
         },
+        delete: async () => {
+          attemptedDeleteIds.push(message.id);
+          if (message.id === 'message-1') throw new Error('delete failed');
+          deletedMessageIds.push(message.id);
+        },
       };
+      messages.set(message.id, message);
+      return message;
+    },
+    messages: {
+      fetch: async (messageId: string) => {
+        const message = messages.get(messageId);
+        if (!message) throw new Error('message not found');
+        return message;
+      },
     },
   };
   const client = {
@@ -74,7 +112,7 @@ function createClientHarnessWithFailingFirstEdit() {
       fetch: async (channelId: string) => (channelId === 'channel-1' ? channel : null),
     },
   };
-  return { client, sentPayloads, editedPayloads };
+  return { client, sentPayloads, editedPayloads, attemptedDeleteIds, deletedMessageIds };
 }
 
 function createAnswer(userId: string, content: string) {
@@ -202,7 +240,7 @@ test('runGame proceeds with fewer valid words than requested rounds', async () =
   await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
   await game;
 
-  assert.equal(sentPayloads.length, 1);
+  assert.equal(sentPayloads.length, 2);
   assert.equal(getRoom('channel-1'), null);
   db.close();
 });
@@ -229,7 +267,7 @@ test('runGame cleans up the room when final leaderboard write fails', async () =
   db.close();
 });
 
-test('runGame edits one persistent game message across rounds and final podium', async () => {
+test('runGame sends one message per round, edits each round result, and sends a separate podium', async () => {
   resetSusunKataRoomsForTest();
   const db = new Database(':memory:');
   createTriviaScoresTable(db);
@@ -253,17 +291,51 @@ test('runGame edits one persistent game message across rounds and final podium',
   await handleSusunKataAnswerMessage(createAnswer('creator-1', 'sepeda') as never);
   await game;
 
-  assert.equal(sentPayloads.length, 1);
-  assert.equal(editedPayloads.length >= 4, true);
+  assert.equal(sentPayloads.length, 3);
+  assert.equal(editedPayloads.length, 2);
   assert.equal(getRoom('channel-1'), null);
   db.close();
 });
 
-test('runGame falls back to a new message if the persistent message edit fails', async () => {
+test('runGame deletes tracked lobby, round, and podium messages after cleanup delay', async () => {
   resetSusunKataRoomsForTest();
   const db = new Database(':memory:');
   createTriviaScoresTable(db);
-  const { client, sentPayloads } = createClientHarnessWithFailingFirstEdit();
+  const { client, deletedMessageIds, messages } = createClientHarness();
+  const room = createRoom('channel-1', 'creator-1', 1);
+  messages.set('lobby-1', {
+    id: 'lobby-1',
+    edit: async () => undefined,
+    delete: async () => {
+      deletedMessageIds.push('lobby-1');
+    },
+  });
+  (room as unknown as { sentMessageIds: string[] }).sentMessageIds = ['lobby-1'];
+  startGame('channel-1');
+
+  const game = runGame('channel-1', client as never, {
+    db,
+    getWords: async (): Promise<WordEntry[]> => [{ word: 'melati', clue: 'Bunga putih yang harum.' }],
+    roundTimeoutMs: 100,
+    transitionDelayMs: 0,
+    cleanupDelayMs: 5,
+  } as Parameters<typeof runGame>[2] & { cleanupDelayMs: number });
+
+  await waitForRoundHandler();
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
+  await game;
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  assert.deepEqual(deletedMessageIds.sort(), ['lobby-1', 'message-1', 'message-2'].sort());
+  assert.equal(getRoom('channel-1'), null);
+  db.close();
+});
+
+test('runGame cleanup keeps deleting remaining messages after one delete failure', async () => {
+  resetSusunKataRoomsForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const { client, attemptedDeleteIds, deletedMessageIds } = createClientHarnessWithOneDeleteFailure();
   createRoom('channel-1', 'creator-1', 1);
   startGame('channel-1');
 
@@ -272,14 +344,16 @@ test('runGame falls back to a new message if the persistent message edit fails',
     getWords: async (): Promise<WordEntry[]> => [{ word: 'melati', clue: 'Bunga putih yang harum.' }],
     roundTimeoutMs: 100,
     transitionDelayMs: 0,
-  });
+    cleanupDelayMs: 5,
+  } as Parameters<typeof runGame>[2] & { cleanupDelayMs: number });
 
   await waitForRoundHandler();
   await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
   await game;
+  await new Promise((resolve) => setTimeout(resolve, 15));
 
-  assert.equal(sentPayloads.length, 2);
-  assert.equal(getRoom('channel-1'), null);
+  assert.deepEqual(attemptedDeleteIds.sort(), ['message-1', 'message-2'].sort());
+  assert.deepEqual(deletedMessageIds, ['message-2']);
   db.close();
 });
 

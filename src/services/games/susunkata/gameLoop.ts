@@ -3,11 +3,13 @@ import type Database from 'better-sqlite3';
 
 import dbDefault from '../../../database/sqlite';
 import {
+  DEBUG_AI,
+  SUSUNKATA_CLEANUP_DELAY_MINUTES,
   SUSUNKATA_POINTS_PER_ROUND,
   SUSUNKATA_ROUND_TIMEOUT_SECONDS,
   SUSUNKATA_ROUND_TRANSITION_DELAY_MS,
 } from '../../../config/env';
-import { destroyRoom, getRoom } from './roomManager';
+import { destroyRoom, getRoom, trackRoomMessage } from './roomManager';
 import { scrambleWord } from './scrambler';
 import { getValidatedWordBatch } from './wordGenerator';
 import type { WordEntry } from './wordValidator';
@@ -17,6 +19,7 @@ interface RunGameDependencies {
   getWords?: (count: number) => Promise<WordEntry[]>;
   roundTimeoutMs?: number;
   transitionDelayMs?: number;
+  cleanupDelayMs?: number;
   pointsPerRound?: number;
   nowMs?: () => number;
 }
@@ -27,8 +30,16 @@ type AnswerMessage = Pick<Message, 'content'> & {
 };
 
 type AnswerHandler = (message: AnswerMessage) => Promise<boolean>;
-type GameMessage = { edit: (payload: unknown) => Promise<unknown> };
+type GameMessage = {
+  id?: string;
+  edit: (payload: unknown) => Promise<unknown>;
+};
 type GameChannel = { send: (payload: unknown) => Promise<GameMessage> };
+type DeletableChannel = GameChannel & {
+  messages?: {
+    fetch: (messageId: string) => Promise<{ delete: () => Promise<unknown> }>;
+  };
+};
 
 const activeAnswerHandlers = new Map<string, AnswerHandler>();
 
@@ -106,33 +117,62 @@ async function fetchTextChannel(client: Client, channelId: string): Promise<Game
   return channel as never;
 }
 
-async function sendOrEditGameMessage(
+async function sendGameMessage(
   channel: GameChannel,
-  message: GameMessage | null,
+  channelId: string,
   payload: unknown,
 ): Promise<GameMessage> {
-  if (!message) return channel.send(payload);
+  const message = await channel.send(payload);
+  trackRoomMessage(channelId, message.id);
+  return message;
+}
 
-  try {
-    await message.edit(payload);
-    return message;
-  } catch (error) {
-    console.error('[SusunKata] failed to edit game message, sending a replacement:', error);
-    return channel.send(payload);
-  }
+function scheduleMessageCleanup(
+  client: Client,
+  channelId: string,
+  messageIds: string[],
+  delayMs: number,
+): void {
+  const uniqueMessageIds = Array.from(new Set(messageIds.filter(Boolean)));
+  if (uniqueMessageIds.length === 0) return;
+
+  const timer = setTimeout(async () => {
+    let deleted = 0;
+    let skipped = 0;
+    const channel = await fetchTextChannel(client, channelId).catch(() => null) as DeletableChannel | null;
+
+    if (!channel?.messages?.fetch) {
+      skipped = uniqueMessageIds.length;
+    } else {
+      for (const messageId of uniqueMessageIds) {
+        try {
+          const message = await channel.messages.fetch(messageId);
+          await message.delete();
+          deleted += 1;
+        } catch {
+          skipped += 1;
+        }
+      }
+    }
+
+    if (DEBUG_AI) {
+      console.log(`[SusunKata] cleanup complete deleted=${deleted} skipped=${skipped}`);
+    }
+  }, delayMs);
+
+  timer.unref?.();
 }
 
 async function playRound(
   roomChannelId: string,
   channel: GameChannel,
-  gameMessage: GameMessage | null,
   entry: WordEntry,
   roundNumber: number,
   totalRounds: number,
   dependencies: Required<Pick<RunGameDependencies, 'roundTimeoutMs' | 'pointsPerRound' | 'nowMs'>>,
-): Promise<GameMessage | null> {
+): Promise<void> {
   const room = getRoom(roomChannelId);
-  if (!room) return gameMessage;
+  if (!room) return;
 
   room.currentRoundIndex = roundNumber - 1;
   room.currentWordEntry = entry;
@@ -143,7 +183,7 @@ async function playRound(
   let elapsedMs: number | null = null;
   let finishRound: (() => void) | null = null;
 
-  let message = await sendOrEditGameMessage(channel, gameMessage, {
+  const message = await sendGameMessage(channel, roomChannelId, {
     embeds: [
       buildRoundEmbed({
         entry,
@@ -188,11 +228,9 @@ async function playRound(
   });
 
   await finishPromise;
-  message = await sendOrEditGameMessage(channel, message, {
+  await message.edit({
     embeds: [buildResultEmbed({ entry, winnerId, elapsedMs })],
   });
-
-  return message;
 }
 
 export async function handleSusunKataAnswerMessage(message: AnswerMessage): Promise<boolean> {
@@ -220,27 +258,27 @@ export async function runGame(
   const getWords = dependencies.getWords ?? getValidatedWordBatch;
   const roundTimeoutMs = dependencies.roundTimeoutMs ?? SUSUNKATA_ROUND_TIMEOUT_SECONDS * 1000;
   const transitionDelayMs = dependencies.transitionDelayMs ?? SUSUNKATA_ROUND_TRANSITION_DELAY_MS;
+  const cleanupDelayMs = dependencies.cleanupDelayMs
+    ?? SUSUNKATA_CLEANUP_DELAY_MINUTES * 60 * 1000;
   const pointsPerRound = dependencies.pointsPerRound ?? SUSUNKATA_POINTS_PER_ROUND;
   const nowMs = dependencies.nowMs ?? Date.now;
 
   try {
     const channel = await fetchTextChannel(client, channelId);
     if (!channel) throw new Error('Susun Kata channel not found');
-    let gameMessage: GameMessage | null = null;
 
     const words = await getWords(room.rounds);
     const playableWords = words.slice(0, room.rounds);
 
     if (playableWords.length === 0) {
-      await channel.send('Susun Kata gagal dimulai karena belum ada kata valid.');
+      await sendGameMessage(channel, channelId, 'Susun Kata gagal dimulai karena belum ada kata valid.');
       return;
     }
 
     for (let index = 0; index < playableWords.length; index += 1) {
-      gameMessage = await playRound(
+      await playRound(
         channelId,
         channel,
-        gameMessage,
         playableWords[index]!,
         index + 1,
         playableWords.length,
@@ -265,13 +303,15 @@ export async function runGame(
       }
     }
 
-    await sendOrEditGameMessage(channel, gameMessage, {
+    await sendGameMessage(channel, channelId, {
       embeds: [buildFinalEmbed(Array.from(latestRoom.players), latestRoom.scores)],
     });
   } catch (error) {
     console.error('[SusunKata] game loop failed:', error);
   } finally {
+    const messageIds = [...room.sentMessageIds];
     activeAnswerHandlers.delete(channelId);
     destroyRoom(channelId);
+    scheduleMessageCleanup(client, channelId, messageIds, cleanupDelayMs);
   }
 }

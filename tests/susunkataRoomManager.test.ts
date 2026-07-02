@@ -21,6 +21,7 @@ test('createRoom creates a waiting room and auto-joins the creator', () => {
   assert.equal(room.creatorId, 'creator-1');
   assert.equal(room.players.has('creator-1'), true);
   assert.equal(room.rounds, 5);
+  assert.deepEqual((room as { sentMessageIds?: string[] }).sentMessageIds, []);
 });
 
 test('createRoom rejects a second active room in the same channel', () => {

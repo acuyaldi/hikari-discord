@@ -14,6 +14,7 @@ export interface SusunKataRoom {
   currentWordEntry: WordEntry | null;
   roundStartedAt: number | null;
   scores: Map<string, number>;
+  sentMessageIds: string[];
   createdAt: number;
   updatedAt: number;
   expiryTimer: NodeJS.Timeout | null;
@@ -76,6 +77,7 @@ export function createRoom(
     currentWordEntry: null,
     roundStartedAt: null,
     scores: new Map(),
+    sentMessageIds: [],
     createdAt: now,
     updatedAt: now,
     expiryTimer: null,
@@ -88,6 +90,15 @@ export function createRoom(
 
 export function getRoom(channelId: string): SusunKataRoom | null {
   return rooms.get(channelId) ?? null;
+}
+
+export function trackRoomMessage(channelId: string, messageId: string | null | undefined): void {
+  if (!messageId) return;
+  const room = rooms.get(channelId);
+  if (!room) return;
+
+  room.sentMessageIds.push(messageId);
+  room.updatedAt = Date.now();
 }
 
 export function joinRoom(channelId: string, userId: string): SusunKataRoom {

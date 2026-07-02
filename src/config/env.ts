@@ -121,6 +121,10 @@ export const SUSUNKATA_ROOM_TIMEOUT_SECONDS = Number.parseInt(
   process.env.SUSUNKATA_ROOM_TIMEOUT_SECONDS ?? '300',
   10,
 );
+export const SUSUNKATA_CLEANUP_DELAY_MINUTES = Number.parseInt(
+  process.env.SUSUNKATA_CLEANUP_DELAY_MINUTES ?? '30',
+  10,
+);
 
 export const DEFAULT_TTS_TRIGGER_KEYWORDS = [
   'jawab pakai suara',
