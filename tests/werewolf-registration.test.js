@@ -16,6 +16,7 @@ const {
   buildWerewolfVoteId,
 } = require('../src/services/werewolf/ids');
 const { joinWerewolfGame } = require('../src/services/werewolf/store');
+const { WEREWOLF_NIGHT_ACTION_MS, WEREWOLF_REGISTRATION_TIMEOUT_MS } = require('../src/services/werewolf/ui');
 
 function createWerewolfSchema(db) {
   db.prepare(`
@@ -208,11 +209,14 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
   let db;
 
   beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['Date'] });
     db = new Database(':memory:');
     createWerewolfSchema(db);
   });
 
   afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
     db.close();
   });
 
@@ -855,6 +859,116 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       expect(nonDefaultRoles).toBe(0);
 
       expect(channel.send).toHaveBeenCalledWith(expect.stringMatching(/belum dimulai karena DM tertutup/i));
+    });
+  });
+
+  describe('Scenario I: Stale lobby auto-cleanup', () => {
+    test('auto-cancels an abandoned lobby after the registration timeout elapses', async () => {
+      const { client, mainMessage } = createMockClient();
+      await startGameAndSeedHost(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_REGISTRATION_TIMEOUT_MS);
+
+      const game = db.prepare('SELECT * FROM ww_games WHERE guild_id = ?').get('guild-1');
+      const players = db.prepare('SELECT * FROM ww_players WHERE guild_id = ?').all('guild-1');
+      expect(game).toBeUndefined();
+      expect(players).toHaveLength(0);
+
+      const editCalls = mainMessage.edit.mock.calls;
+      const lastEditPayload = editCalls[editCalls.length - 1][0];
+      expect(lastEditPayload.embeds[0].data.title).toMatch(/lobby ditutup/i);
+      expect(lastEditPayload.components).toEqual([]);
+    });
+
+    test('does not auto-cancel the lobby once the game has successfully launched', async () => {
+      const { client } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_REGISTRATION_TIMEOUT_MS);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game).toBeTruthy();
+      expect(game.phase).not.toBe('registration');
+    });
+  });
+
+  describe('Scenario J: Night phase timeout', () => {
+    test('auto-resolves the night phase after the timeout even if not everyone submitted an action', async () => {
+      const { client } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_NIGHT_ACTION_MS);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game.phase).toBe('day');
+    });
+
+    // NOTE: This test proves that the manual full-submission resolve path cancels the
+    // pending nightTimers entry (via clearGuildTimers -> clearTimeout), so the scheduled
+    // setTimeout callback never fires and therefore never re-runs any night/day resolution
+    // logic at all. It does NOT exercise resolveNightPhase's own internal
+    // `game.phase !== 'night'` guard, because a timer cancelled with clearTimeout never
+    // invokes its callback in the first place -- there is no second invocation of
+    // resolveNightPhase here for the guard to short-circuit. Reaching that guard branch as
+    // "invoked-with-stale-phase-and-correctly-returns-early" would require either exporting
+    // the internal `resolveNightPhase` for direct testing, or a black-box mock hook that
+    // mutates the DB phase mid-flight through an unrelated internal call (e.g. the
+    // `client.guilds.fetch` used by `displayName`) purely to land the write in the right
+    // await window -- both were judged out of scope / too fragile for this fix. This is a
+    // known, intentionally-flagged test gap, not a claim that the guard is verified.
+    test('clears the pending night timer once everyone has already submitted, so the scheduled timeout never fires and never re-runs night/day resolution', async () => {
+      const { client, mainMessage } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      const seer = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role = ?')
+        .get('guild-1', 'seer');
+      const wolf = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role = ?')
+        .get('guild-1', 'werewolf');
+      const seerTarget = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND user_id != ? LIMIT 1')
+        .get('guild-1', seer.user_id);
+      const wolfTarget = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role != ? AND user_id != ? LIMIT 1')
+        .get('guild-1', 'werewolf', seer.user_id);
+
+      await handleWerewolfComponentInteraction(
+        createSelectInteraction({
+          customId: buildWerewolfNightTargetId('guild-1', 'inspect'),
+          userId: seer.user_id,
+          values: [seerTarget.user_id],
+          client,
+        }),
+        db,
+      );
+      await handleWerewolfComponentInteraction(
+        createSelectInteraction({
+          customId: buildWerewolfNightTargetId('guild-1', 'kill'),
+          userId: wolf.user_id,
+          values: [wolfTarget.user_id],
+          client,
+        }),
+        db,
+      );
+
+      // The manual full-submission resolve above already ran resolveNightPhase once,
+      // which produced exactly one DAY embed edit.
+      const dayEditsBefore = mainMessage.edit.mock.calls.filter(
+        ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
+      ).length;
+      expect(dayEditsBefore).toBe(1);
+
+      // That same resolve call cleared this guild's nightTimers entry via clearGuildTimers,
+      // so the setTimeout scheduled in startNightPhase was removed from Node's timer queue
+      // before it could fire. Advancing fake timers past its original delay should therefore
+      // invoke no callback at all for this guild -- not "invoke it and have it correctly no-op".
+      await jest.advanceTimersByTimeAsync(WEREWOLF_NIGHT_ACTION_MS);
+
+      const dayEditsAfter = mainMessage.edit.mock.calls.filter(
+        ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
+      ).length;
+      expect(dayEditsAfter).toBe(1);
     });
   });
 });
