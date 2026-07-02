@@ -249,6 +249,211 @@ test('image requests skip non-vision provider overrides and use Gemini', async (
   }
 });
 
+test('image requests fall back from Gemini vision to OpenRouter vision with prompt context intact', async () => {
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const manager = new ProviderManager({
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+  });
+  const calls: AIProviderName[] = [];
+  let openRouterRequest: ChatRequest | undefined;
+
+  manager.registerProvider({
+    name: AIProviderName.GEMINI,
+    supportsVision: true,
+    supportsReasoning: true,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.GEMINI);
+      throw Object.assign(new Error('RESOURCE_EXHAUSTED: quota exceeded'), { status: 429 });
+    },
+  });
+  manager.registerProvider({
+    name: AIProviderName.OPENROUTER,
+    supportsVision: true,
+    supportsReasoning: false,
+    supportsCoding: true,
+    generate: async (request) => {
+      calls.push(AIProviderName.OPENROUTER);
+      openRouterRequest = request;
+      return { replyText: 'openrouter vision response', providerUsed: AIProviderName.OPENROUTER };
+    },
+  });
+
+  const response = await manager.generate({
+    ...requestWithImage(),
+    finalPrompt: 'Persona prompt\n\nPetunjuk identifikasi: Example Anime',
+    dynamicSystemInstruction: 'Hikari persona context',
+    taskType: TaskType.VISION,
+    preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER],
+  });
+
+  assert.equal(response.providerUsed, AIProviderName.OPENROUTER);
+  assert.deepEqual(calls, [AIProviderName.GEMINI, AIProviderName.OPENROUTER]);
+  assert.equal(openRouterRequest?.dynamicSystemInstruction, 'Hikari persona context');
+  assert.match(openRouterRequest?.finalPrompt ?? '', /Petunjuk identifikasi: Example Anime/);
+});
+
+test('OpenRouter vision fallback sends persona and SauceNAO hint in the multimodal payload', async () => {
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const { OpenRouterProvider } = await import('../src/services/ai/providers/openrouterProvider');
+  const downloadImage = require('../src/utils/downloadImage') as typeof import('../src/utils/downloadImage');
+  const originalDownload = downloadImage.downloadDiscordImage;
+  const managerCircuitBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 });
+  const openRouterCircuitBreaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 });
+  const manager = new ProviderManager({ circuitBreaker: managerCircuitBreaker });
+  const apiCalls: Array<{ model: string; messages: unknown[] }> = [];
+
+  downloadImage.downloadDiscordImage = async () => ({
+    data: 'base64-image',
+    mimeType: 'image/png',
+  });
+
+  manager.registerProvider({
+    name: AIProviderName.GEMINI,
+    supportsVision: true,
+    supportsReasoning: true,
+    supportsCoding: true,
+    generate: async () => {
+      throw Object.assign(new Error('RESOURCE_EXHAUSTED: quota exceeded'), { status: 429 });
+    },
+  });
+  manager.registerProvider(new OpenRouterProvider({
+    apiKey: 'test-key',
+    models: ['text-model'],
+    visionModel: 'vision-model',
+    circuitBreaker: openRouterCircuitBreaker,
+    client: {
+      chat: {
+        completions: {
+          create: async (params) => {
+            apiCalls.push({ model: params.model, messages: params.messages });
+            return { choices: [{ message: { content: 'openrouter vision response' } }] };
+          },
+        },
+      },
+    },
+  }));
+
+  try {
+    const response = await manager.generate({
+      ...requestWithImage(),
+      finalPrompt: 'Full Hikari prompt context\n\nPetunjuk identifikasi: Example Anime',
+      dynamicSystemInstruction: 'Hikari persona/system instruction',
+      taskType: TaskType.VISION,
+      preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER],
+    });
+
+    assert.equal(response.providerUsed, AIProviderName.OPENROUTER);
+    assert.equal(apiCalls.length, 1);
+    assert.equal(apiCalls[0].model, 'vision-model');
+    assert.deepEqual(apiCalls[0].messages, [
+      { role: 'system', content: 'Hikari persona/system instruction' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Full Hikari prompt context\n\nPetunjuk identifikasi: Example Anime' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,base64-image' } },
+        ],
+      },
+    ]);
+  } finally {
+    downloadImage.downloadDiscordImage = originalDownload;
+  }
+});
+
+test('image vision fallback respects OpenRouter circuit breaker cooldown', async () => {
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const circuitBreaker = new CircuitBreaker({ failureThreshold: 1, cooldownMs: 300_000 });
+  circuitBreaker.recordFailure(AIProviderName.OPENROUTER, Object.assign(new Error('rate limit'), { status: 429 }));
+  const manager = new ProviderManager({ circuitBreaker });
+  const calls: AIProviderName[] = [];
+
+  manager.registerProvider({
+    name: AIProviderName.GEMINI,
+    supportsVision: true,
+    supportsReasoning: true,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.GEMINI);
+      throw new Error('unexpected image failure');
+    },
+  });
+  manager.registerProvider({
+    name: AIProviderName.OPENROUTER,
+    supportsVision: true,
+    supportsReasoning: false,
+    supportsCoding: true,
+    generate: async () => {
+      calls.push(AIProviderName.OPENROUTER);
+      return { replyText: 'should not run', providerUsed: AIProviderName.OPENROUTER };
+    },
+  });
+
+  const response = await manager.generate({
+    ...requestWithImage(),
+    taskType: TaskType.VISION,
+    preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER],
+  });
+
+  assert.deepEqual(calls, [AIProviderName.GEMINI]);
+  assert.equal(response.earlyReply, 'Pembaca gambarku lagi rewel. Coba lagi sebentar atau kirim gambar lain.');
+});
+
+test('quota errors from all vision providers produce the honest quota message', async () => {
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const manager = new ProviderManager({
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+  });
+
+  for (const name of [AIProviderName.GEMINI, AIProviderName.OPENROUTER]) {
+    manager.registerProvider({
+      name,
+      supportsVision: true,
+      supportsReasoning: name === AIProviderName.GEMINI,
+      supportsCoding: true,
+      generate: async () => {
+        throw Object.assign(new Error('RESOURCE_EXHAUSTED: quota exhausted'), { status: 429 });
+      },
+    });
+  }
+
+  const response = await manager.generate({
+    ...requestWithImage(),
+    taskType: TaskType.VISION,
+    preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER],
+  });
+
+  assert.match(response.earlyReply ?? '', /Kuota Hikari buat baca gambar lagi penuh/i);
+  assert.doesNotMatch(response.earlyReply ?? '', /rewel/i);
+});
+
+test('unexpected errors from all vision providers keep the generic image failure message', async () => {
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const manager = new ProviderManager({
+    circuitBreaker: new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 }),
+  });
+
+  for (const name of [AIProviderName.GEMINI, AIProviderName.OPENROUTER]) {
+    manager.registerProvider({
+      name,
+      supportsVision: true,
+      supportsReasoning: name === AIProviderName.GEMINI,
+      supportsCoding: true,
+      generate: async () => {
+        throw new Error('unexpected image failure');
+      },
+    });
+  }
+
+  const response = await manager.generate({
+    ...requestWithImage(),
+    taskType: TaskType.VISION,
+    preferredProviders: [AIProviderName.GEMINI, AIProviderName.OPENROUTER],
+  });
+
+  assert.equal(response.earlyReply, 'Pembaca gambarku lagi rewel. Coba lagi sebentar atau kirim gambar lain.');
+});
+
 test('GeminiProvider passes image inlineData with the text prompt', async () => {
   clearMemory('gemini-image-channel');
   const chatMemory = require('../src/services/chatMemory') as typeof import('../src/services/chatMemory');

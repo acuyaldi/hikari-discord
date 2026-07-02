@@ -3,6 +3,7 @@ import { AIProviderName } from './types';
 interface ProviderStat {
   success: number;
   failure: number;
+  fallback: number;
   totalLatencyMs: number;
   lastUsedAt: number | null;
 }
@@ -27,7 +28,7 @@ export interface ProviderMetricsSnapshot {
 function ensureStat(name: AIProviderName): ProviderStat {
   let s = stats.get(name);
   if (!s) {
-    s = { success: 0, failure: 0, totalLatencyMs: 0, lastUsedAt: null };
+    s = { success: 0, failure: 0, fallback: 0, totalLatencyMs: 0, lastUsedAt: null };
     stats.set(name, s);
   }
   return s;
@@ -36,7 +37,7 @@ function ensureStat(name: AIProviderName): ProviderStat {
 function ensureModelStat(model: string): ProviderStat {
   let s = modelStats.get(model);
   if (!s) {
-    s = { success: 0, failure: 0, totalLatencyMs: 0, lastUsedAt: null };
+    s = { success: 0, failure: 0, fallback: 0, totalLatencyMs: 0, lastUsedAt: null };
     modelStats.set(model, s);
   }
   return s;
@@ -53,6 +54,11 @@ export function recordFailure(name: AIProviderName): void {
   const s = ensureStat(name);
   s.failure += 1;
   s.lastUsedAt = Date.now();
+}
+
+export function recordFallback(name: AIProviderName): void {
+  const s = ensureStat(name);
+  s.fallback += 1;
 }
 
 export function recordModelSuccess(model: string, latencyMs: number): void {
@@ -76,7 +82,7 @@ function toSnapshot(name: string, stat: ProviderStat): MetricSnapshot {
     failure: stat.failure,
     averageLatencyMs,
     lastUsedAt: stat.lastUsedAt,
-    fallbackCount: null,
+    fallbackCount: stat.fallback,
   };
 }
 

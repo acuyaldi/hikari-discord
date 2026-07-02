@@ -71,6 +71,25 @@ export function isTransientAIError(error: unknown): boolean {
   return message.includes('timeout') || message.includes('timed out');
 }
 
+export function isQuotaOrRateLimitAIError(error: unknown): boolean {
+  if (hasNumberProperty(error, 'status') && error.status === 429) return true;
+  if (hasNumberProperty(error, 'statusCode') && error.statusCode === 429) return true;
+
+  if (hasStringProperty(error, 'code')) {
+    const code = error.code.toUpperCase();
+    if (code === 'RESOURCE_EXHAUSTED' || code === 'RATE_LIMIT_EXCEEDED') return true;
+  }
+
+  const message = errorMessage(error).toLowerCase();
+  return (
+    message.includes('resource_exhausted') ||
+    message.includes('quota') ||
+    message.includes('rate limit') ||
+    message.includes('rate-limit') ||
+    message.includes('too many requests')
+  );
+}
+
 export class CircuitBreaker {
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;

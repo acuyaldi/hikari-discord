@@ -1,13 +1,14 @@
 import type { AIProvider, ChatRequest, ChatResponse } from './types';
 import { AIProviderName, TaskType } from './types';
 import { AI_PROVIDER_ORDER, DEBUG_AI } from '../../config/env';
-import { recordSuccess, recordFailure } from './providerMetrics';
+import { recordSuccess, recordFailure, recordFallback } from './providerMetrics';
 import { GeminiProvider } from './providers/geminiProvider';
 import { GroqProvider } from './providers/groqProvider';
 import { HuggingFaceProvider } from './providers/huggingFaceProvider';
 import { OpenRouterProvider } from './providers/openrouterProvider';
 import {
   circuitBreaker as defaultCircuitBreaker,
+  isQuotaOrRateLimitAIError,
   isTransientAIError,
   type CircuitBreaker,
 } from './circuitBreaker';
@@ -16,6 +17,8 @@ import { rankTargets } from './providerRanking';
 import { resolveProviderOverride } from './providerOverride';
 
 const DEBUG = DEBUG_AI;
+const GENERIC_IMAGE_FAILURE_MESSAGE = 'Pembaca gambarku lagi rewel. Coba lagi sebentar atau kirim gambar lain.';
+const QUOTA_IMAGE_FAILURE_MESSAGE = 'Kuota Hikari buat baca gambar lagi penuh semua nih Senpai, coba lagi nanti ya.';
 
 const VALID_NAMES = new Set<string>(Object.values(AIProviderName));
 
@@ -92,6 +95,7 @@ export class ProviderManager {
     const override = resolveProviderOverride(request.userId);
     const order = applyProviderOverride(rankedOrder, override, this.providers, request.hasImage);
     let lastError: unknown;
+    const visionErrors: unknown[] = [];
 
     if (DEBUG) {
       console.log(
@@ -140,14 +144,22 @@ export class ProviderManager {
         if (state.isOpen && state.openedUntil) markCooldown(name, state.openedUntil, err);
         console.error(`${name} Error, trying next provider:`, err);
         lastError = err;
+        if (request.hasImage) visionErrors.push(err);
 
         const remaining = order.slice(order.indexOf(name) + 1);
+        if (remaining.some((nextName) => this.providers.has(nextName))) {
+          recordFallback(name);
+        }
         const hasNextVision = remaining.some((n) => this.providers.get(n)?.supportsVision);
         if (request.hasImage && !hasNextVision) {
+          const earlyReply =
+            visionErrors.length > 0 && visionErrors.every(isQuotaOrRateLimitAIError)
+              ? QUOTA_IMAGE_FAILURE_MESSAGE
+              : GENERIC_IMAGE_FAILURE_MESSAGE;
           return {
             replyText: '',
             providerUsed: name,
-            earlyReply: 'Pembaca gambarku lagi rewel. Coba lagi sebentar atau kirim gambar lain.',
+            earlyReply,
           };
         }
       }

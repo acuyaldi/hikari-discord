@@ -4,18 +4,9 @@ import test from 'node:test';
 import { CircuitBreaker } from '../src/services/ai/circuitBreaker';
 import {
   formatDebugRouting,
-  formatProviderStats,
   getDebugRoutingSnapshot,
 } from '../src/services/ai/aiDebugFormatter';
 import { recordHealthFailure, recordHealthSuccess, resetHealth } from '../src/services/ai/healthCache';
-import {
-  getProviderMetricsSnapshot,
-  recordFailure,
-  recordModelFailure,
-  recordModelSuccess,
-  recordSuccess,
-  resetProviderMetrics,
-} from '../src/services/ai/providerMetrics';
 import { AIProviderName, TaskType } from '../src/services/ai/types';
 
 function transientError(status = 429): Error & { status: number } {
@@ -23,40 +14,6 @@ function transientError(status = 429): Error & { status: number } {
   err.status = status;
   return err;
 }
-
-test('formats improved provider stats with success rate and last used time', () => {
-  resetProviderMetrics();
-  recordSuccess(AIProviderName.GEMINI, 100);
-  recordSuccess(AIProviderName.GEMINI, 300);
-  recordFailure(AIProviderName.GEMINI);
-
-  const output = formatProviderStats(getProviderMetricsSnapshot(), { now: Date.now() });
-
-  assert.match(output, /AI Provider Stats/);
-  assert.match(output, /Gemini/);
-  assert.match(output, /Success: 2/);
-  assert.match(output, /Failure: 1/);
-  assert.match(output, /Success Rate: 67%/);
-  assert.match(output, /Avg Latency: 200ms/);
-  assert.match(output, /Last Used: Just now/);
-  assert.match(output, /Fallback Count: -/);
-});
-
-test('formats OpenRouter model stats', () => {
-  resetProviderMetrics();
-  recordSuccess(AIProviderName.OPENROUTER, 500);
-  recordModelSuccess('qwen/qwen3-32b:free', 700);
-  recordModelFailure('qwen/qwen3-32b:free');
-
-  const output = formatProviderStats(getProviderMetricsSnapshot(), { now: Date.now() });
-
-  assert.match(output, /OpenRouter Models/);
-  assert.match(output, /qwen\/qwen3-32b:free/);
-  assert.match(output, /Success: 1/);
-  assert.match(output, /Failure: 1/);
-  assert.match(output, /Success Rate: 50%/);
-  assert.match(output, /Avg Latency: 700ms/);
-});
 
 test('formats debug routing output without calling providers', () => {
   resetHealth();

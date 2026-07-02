@@ -4,7 +4,9 @@ import {
   OPENROUTER_ALLOW_PAID_FALLBACK,
   OPENROUTER_API_KEY,
   OPENROUTER_MODELS,
+  OPENROUTER_VISION_MODEL,
 } from '../../../config/env';
+import { downloadDiscordImage } from '../../../utils/downloadImage';
 import { AIProviderName } from '../types';
 import type { AIProvider, ChatRequest, ChatResponse } from '../types';
 import {
@@ -32,6 +34,9 @@ const client = new OpenAI({
 const DEBUG = DEBUG_AI;
 
 type OpenRouterMessage = { role: string; content?: unknown; [key: string]: unknown };
+type OpenRouterImageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
 type OpenRouterCompletion = {
   choices: {
     message?: {
@@ -57,6 +62,7 @@ interface OpenRouterClient {
 interface OpenRouterProviderOptions {
   apiKey?: string;
   models?: string[];
+  visionModel?: string;
   circuitBreaker?: CircuitBreaker;
   client?: OpenRouterClient;
   allowPaidFallback?: boolean;
@@ -87,12 +93,13 @@ function getErrorStatus(err: unknown): number | undefined {
 
 export class OpenRouterProvider implements AIProvider {
   readonly name = AIProviderName.OPENROUTER;
-  readonly supportsVision = false;
+  readonly supportsVision = true;
   readonly supportsReasoning = false;
   readonly supportsCoding = true;
 
   private readonly apiKey: string;
   private readonly models: string[];
+  private readonly visionModel: string;
   private readonly circuitBreaker: CircuitBreaker;
   private readonly client: OpenRouterClient;
   private readonly allowPaidFallback: boolean;
@@ -100,6 +107,7 @@ export class OpenRouterProvider implements AIProvider {
   constructor(options: OpenRouterProviderOptions = {}) {
     this.apiKey = options.apiKey ?? OPENROUTER_API_KEY;
     this.models = options.models ?? OPENROUTER_MODELS;
+    this.visionModel = options.visionModel ?? OPENROUTER_VISION_MODEL;
     this.allowPaidFallback = options.allowPaidFallback ?? OPENROUTER_ALLOW_PAID_FALLBACK;
     this.circuitBreaker = options.circuitBreaker ?? defaultCircuitBreaker;
     this.client =
@@ -116,16 +124,13 @@ export class OpenRouterProvider implements AIProvider {
   async generate(request: ChatRequest): Promise<ChatResponse> {
     if (!this.apiKey) throw new Error('OPENROUTER_API_KEY not configured');
 
-    const { dynamicSystemInstruction, finalPrompt } = request;
-    const messages: OpenRouterMessage[] = [
-      { role: 'system', content: dynamicSystemInstruction },
-      { role: 'user', content: finalPrompt },
-    ];
+    const messages = await this.buildMessages(request);
 
     const errors: { model: string; error: string }[] = [];
     let skippedModels = 0;
     const attemptedModels = new Set<string>();
-    const modelTargets = this.models.map((model) => `openrouter:${model}`);
+    const requestModels = request.hasImage ? [this.visionModel] : this.models;
+    const modelTargets = requestModels.map((model) => `openrouter:${model}`);
     const rankedTargets = rankTargets(modelTargets);
 
     if (DEBUG) {
@@ -183,7 +188,7 @@ export class OpenRouterProvider implements AIProvider {
 
         if (DEBUG) {
           console.log(`[OpenRouter] Failed (${status ?? 'network'}): ${model}`);
-          if (errors.length + skippedModels < this.models.length) {
+          if (errors.length + skippedModels < requestModels.length) {
             console.log('[OpenRouter] Trying next...');
           }
         }
@@ -247,13 +252,35 @@ export class OpenRouterProvider implements AIProvider {
       }
     }
 
-    if (errors.length === 0 && skippedModels === this.models.length) {
+    if (errors.length === 0 && skippedModels === requestModels.length) {
       throw new Error('OpenRouter: all models are temporarily unavailable due to circuit breaker cooldown');
     }
 
     const summary = errors.map((e) => `  ${e.model} -> ${e.error}`).join('\n');
     if (DEBUG) console.log(`[OpenRouter] All models failed:\n${summary}`);
     throw new Error(`OpenRouter: all models failed:\n${summary}`);
+  }
+
+  private async buildMessages(request: ChatRequest): Promise<OpenRouterMessage[]> {
+    const { dynamicSystemInstruction, finalPrompt, hasImage, imageUrl } = request;
+    const userContent: string | OpenRouterImageContentPart[] =
+      hasImage && imageUrl
+        ? await this.buildImageContent(finalPrompt, imageUrl)
+        : finalPrompt;
+
+    return [
+      { role: 'system', content: dynamicSystemInstruction },
+      { role: 'user', content: userContent },
+    ];
+  }
+
+  private async buildImageContent(finalPrompt: string, imageUrl: string): Promise<OpenRouterImageContentPart[]> {
+    const image = await downloadDiscordImage(imageUrl);
+    const dataUri = `data:${image.mimeType};base64,${image.data}`;
+    return [
+      { type: 'text', text: finalPrompt },
+      { type: 'image_url', image_url: { url: dataUri } },
+    ];
   }
 
   private async generateWithTools(
