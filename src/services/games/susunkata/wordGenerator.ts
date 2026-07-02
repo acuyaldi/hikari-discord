@@ -1,11 +1,8 @@
 import { Type } from '@google/genai';
 
 import ai from '../../../ai/gemini';
-import {
-  SUSUNKATA_WORD_MAX_LENGTH,
-  SUSUNKATA_WORD_MIN_LENGTH,
-} from '../../../config/env';
 import { AIProviderName, TaskType } from '../../ai/types';
+import { COMMON_WORDS } from './commonWords';
 import {
   type WordEntry,
   validateWordBatch,
@@ -17,30 +14,48 @@ export type { WordEntry };
 export const SUSUNKATA_MODEL = 'gemini-2.5-flash-lite';
 
 export const SUSUNKATA_GENERATION_PROMPT = [
-  'Generate a batch for Susun Kata in a SINGLE AI call.',
-  `Generate exactly {count} DISTINCT Indonesian nouns/verbs (KBBI-valid), each ${SUSUNKATA_WORD_MIN_LENGTH}-${SUSUNKATA_WORD_MAX_LENGTH} letters long.`,
-  "Provide one short, clear clue per word that doesn't contain or directly hint the word itself.",
-  'Avoid offensive, sensitive, or NSFW words entirely.',
-  'Return strictly as JSON: [{ "word": "...", "clue": "..." }, ...]',
+  'Untuk setiap kata berikut, buatkan satu clue singkat yang tidak mengandung kata itu sendiri: {words}.',
+  'Jawab sebagai JSON: [{ "word": "...", "clue": "..." }, ...] dengan urutan kata yang sama persis seperti diberikan.',
+  'Return strictly as JSON only. No markdown, no explanation.',
 ].join('\n');
 
 const SUSUNKATA_SYSTEM_INSTRUCTION = [
-  'You are an Indonesian word puzzle content generator.',
+  'You are an Indonesian word puzzle clue generator.',
+  'The words are fixed inputs. Do not replace, add, remove, translate, or invent words.',
   'Return raw JSON only. No markdown, no prose, no explanation.',
-  'Every word must be a common Indonesian noun or verb suitable for a family game.',
 ].join('\n');
 
 interface GenerateWordBatchDependencies {
   directGenerate?: (count: number, prompt: string) => Promise<string>;
   providerGenerate?: (count: number, prompt: string) => Promise<string>;
+  selectWords?: (count: number) => string[];
+  substituteWords?: (count: number, excludedWords: Set<string>) => string[];
+  clueRetryLimit?: number;
 }
 
-interface GetValidatedWordBatchDependencies {
+interface GetValidatedWordBatchDependencies extends GenerateWordBatchDependencies {
   generateBatch?: (count: number) => Promise<WordEntry[]>;
 }
 
-function promptForCount(count: number): string {
-  return SUSUNKATA_GENERATION_PROMPT.replace('{count}', String(count));
+function promptForWords(words: string[]): string {
+  return SUSUNKATA_GENERATION_PROMPT.replace('{words}', words.join(', '));
+}
+
+export function selectRandomWords(count: number): string[] {
+  const shuffled = [...COMMON_WORDS];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex]!, shuffled[index]!];
+  }
+
+  return shuffled.slice(0, Math.max(0, Math.min(count, shuffled.length)));
+}
+
+function selectSubstituteWords(count: number, excludedWords: Set<string>): string[] {
+  return selectRandomWords(COMMON_WORDS.length)
+    .filter((word) => !excludedWords.has(word))
+    .slice(0, count);
 }
 
 function sanitizeJsonResponse(raw: string): string {
@@ -64,7 +79,7 @@ function sanitizeJsonResponse(raw: string): string {
   return trimmed;
 }
 
-function parseWordBatch(rawJson: string): WordEntry[] {
+function parseClueBatch(rawJson: string): WordEntry[] {
   const parsed = JSON.parse(sanitizeJsonResponse(rawJson)) as unknown;
 
   if (!Array.isArray(parsed)) {
@@ -81,17 +96,19 @@ function parseWordBatch(rawJson: string): WordEntry[] {
       throw new Error('Invalid susunkata response: entry shape');
     }
 
-    const entry: WordEntry = {
+    return {
       word: (item as { word: string }).word.trim().toLowerCase(),
       clue: (item as { clue: string }).clue.trim(),
     };
-
-    if (!validateWordEntry(entry).valid) {
-      throw new Error('Invalid susunkata response: entry validation');
-    }
-
-    return entry;
   });
+}
+
+function entryForExpectedWord(entries: WordEntry[], word: string, index = 0): WordEntry | null {
+  const entry = entries[index];
+  if (!entry || entry.word !== word) return null;
+
+  const candidate = { word, clue: entry.clue };
+  return validateWordEntry(candidate).valid ? candidate : null;
 }
 
 async function directGeminiGenerate(count: number, prompt: string): Promise<string> {
@@ -100,7 +117,7 @@ async function directGeminiGenerate(count: number, prompt: string): Promise<stri
     contents: prompt,
     config: {
       systemInstruction: SUSUNKATA_SYSTEM_INSTRUCTION,
-      temperature: 1,
+      temperature: 0.9,
       responseMimeType: 'application/json',
       responseJsonSchema: {
         type: Type.ARRAY,
@@ -149,63 +166,122 @@ async function providerRouterGenerate(_count: number, prompt: string): Promise<s
   return response.replyText;
 }
 
-export async function generateWordBatch(
-  count: number,
-  dependencies: GenerateWordBatchDependencies = {},
+async function requestCluesForWords(
+  words: string[],
+  dependencies: Required<Pick<GenerateWordBatchDependencies, 'directGenerate' | 'providerGenerate'>>,
 ): Promise<WordEntry[]> {
-  const directGenerate = dependencies.directGenerate ?? directGeminiGenerate;
-  const providerGenerate = dependencies.providerGenerate ?? providerRouterGenerate;
-  const prompt = promptForCount(count);
+  const prompt = promptForWords(words);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      return parseWordBatch(await directGenerate(count, prompt));
+      return parseClueBatch(await dependencies.directGenerate(words.length, prompt));
     } catch (error) {
       lastError = error;
       console.error(
-        `[SusunKata] generate word batch failed (attempt ${attempt}/2):`,
+        `[SusunKata] generate clue batch failed (attempt ${attempt}/2):`,
         error,
       );
     }
   }
 
   try {
-    return parseWordBatch(await providerGenerate(count, prompt));
+    return parseClueBatch(await dependencies.providerGenerate(words.length, prompt));
   } catch (error) {
     lastError = error;
-    console.error('[SusunKata] provider-router fallback also failed:', error);
+    console.error('[SusunKata] provider-router clue fallback also failed:', error);
   }
 
-  throw lastError ?? new Error('Susun Kata generation failed');
+  throw lastError ?? new Error('Susun Kata clue generation failed');
+}
+
+async function repairClueForWord(
+  word: string,
+  usedWords: Set<string>,
+  dependencies: Required<
+    Pick<GenerateWordBatchDependencies, 'directGenerate' | 'providerGenerate' | 'substituteWords' | 'clueRetryLimit'>
+  >,
+): Promise<WordEntry> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= dependencies.clueRetryLimit; attempt += 1) {
+    try {
+      const entries = await requestCluesForWords([word], dependencies);
+      const repaired = entryForExpectedWord(entries, word);
+      if (repaired) return repaired;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const substitute = dependencies.substituteWords(1, usedWords)[0];
+  if (substitute) {
+    usedWords.add(substitute);
+    for (let attempt = 1; attempt <= Math.max(1, dependencies.clueRetryLimit); attempt += 1) {
+      try {
+        const entries = await requestCluesForWords([substitute], dependencies);
+        const repaired = entryForExpectedWord(entries, substitute);
+        if (repaired) return repaired;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Invalid susunkata response: entry validation');
+}
+
+export async function generateWordBatch(
+  count: number,
+  dependencies: GenerateWordBatchDependencies = {},
+): Promise<WordEntry[]> {
+  const directGenerate = dependencies.directGenerate ?? directGeminiGenerate;
+  const providerGenerate = dependencies.providerGenerate ?? providerRouterGenerate;
+  const selectedWords = (dependencies.selectWords ?? selectRandomWords)(count);
+  const clueRetryLimit = dependencies.clueRetryLimit ?? 2;
+  const substituteWords = dependencies.substituteWords ?? selectSubstituteWords;
+  const usedWords = new Set(selectedWords);
+
+  if (selectedWords.length === 0) return [];
+
+  const generatorDependencies = { directGenerate, providerGenerate };
+  const entries = await requestCluesForWords(selectedWords, generatorDependencies);
+  const validEntries: WordEntry[] = [];
+
+  for (let index = 0; index < selectedWords.length; index += 1) {
+    const word = selectedWords[index]!;
+    const validEntry = entryForExpectedWord(entries, word, index);
+
+    if (validEntry) {
+      validEntries.push(validEntry);
+      continue;
+    }
+
+    validEntries.push(
+      await repairClueForWord(word, usedWords, {
+        ...generatorDependencies,
+        clueRetryLimit,
+        substituteWords,
+      }),
+    );
+  }
+
+  return validEntries;
 }
 
 export async function getValidatedWordBatch(
   count: number,
   dependencies: GetValidatedWordBatchDependencies = {},
 ): Promise<WordEntry[]> {
-  const generateBatch = dependencies.generateBatch ?? generateWordBatch;
-  const accepted: WordEntry[] = [];
-  const seenWords = new Set<string>();
-  let remaining = Math.max(0, count);
+  const generateBatch =
+    dependencies.generateBatch ??
+    ((requestedCount: number) => generateWordBatch(requestedCount, dependencies));
 
-  for (let attempt = 0; attempt <= 2 && remaining > 0; attempt += 1) {
-    try {
-      const generated = await generateBatch(remaining);
-      const batch = validateWordBatch(generated);
-
-      for (const entry of batch.valid) {
-        const normalized = entry.word.trim().toLowerCase();
-        if (seenWords.has(normalized)) continue;
-        seenWords.add(normalized);
-        accepted.push(entry);
-      }
-    } catch (error) {
-      console.error('[SusunKata] validated batch generation failed:', error);
-    }
-
-    remaining = count - accepted.length;
+  try {
+    const generated = await generateBatch(count);
+    return validateWordBatch(generated).valid.slice(0, count);
+  } catch (error) {
+    console.error('[SusunKata] validated batch generation failed:', error);
+    return [];
   }
-
-  return accepted.slice(0, count);
 }
