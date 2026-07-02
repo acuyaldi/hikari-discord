@@ -50,6 +50,33 @@ function createClientHarness() {
   return { client, sentPayloads, editedPayloads };
 }
 
+function createClientHarnessWithFailingFirstEdit() {
+  const sentPayloads: unknown[] = [];
+  const editedPayloads: unknown[] = [];
+  let editCalls = 0;
+  const channel = {
+    id: 'channel-1',
+    send: async (payload: unknown) => {
+      sentPayloads.push(payload);
+      return {
+        edit: async (editPayload: unknown) => {
+          editCalls += 1;
+          if (editCalls === 1) {
+            throw new Error('message deleted');
+          }
+          editedPayloads.push(editPayload);
+        },
+      };
+    },
+  };
+  const client = {
+    channels: {
+      fetch: async (channelId: string) => (channelId === 'channel-1' ? channel : null),
+    },
+  };
+  return { client, sentPayloads, editedPayloads };
+}
+
 function createAnswer(userId: string, content: string) {
   return {
     channel: { id: 'channel-1' },
@@ -175,7 +202,83 @@ test('runGame proceeds with fewer valid words than requested rounds', async () =
   await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
   await game;
 
-  assert.equal(sentPayloads.length >= 2, true);
+  assert.equal(sentPayloads.length, 1);
+  assert.equal(getRoom('channel-1'), null);
+  db.close();
+});
+
+test('runGame cleans up the room when final leaderboard write fails', async () => {
+  resetSusunKataRoomsForTest();
+  const db = new Database(':memory:');
+  const { client } = createClientHarness();
+  createRoom('channel-1', 'creator-1', 1);
+  startGame('channel-1');
+
+  const game = runGame('channel-1', client as never, {
+    db,
+    getWords: async (): Promise<WordEntry[]> => [{ word: 'melati', clue: 'Bunga putih yang harum.' }],
+    roundTimeoutMs: 100,
+    transitionDelayMs: 0,
+  });
+
+  await waitForRoundHandler();
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
+  await game;
+
+  assert.equal(getRoom('channel-1'), null);
+  db.close();
+});
+
+test('runGame edits one persistent game message across rounds and final podium', async () => {
+  resetSusunKataRoomsForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const { client, sentPayloads, editedPayloads } = createClientHarness();
+  createRoom('channel-1', 'creator-1', 2);
+  startGame('channel-1');
+
+  const game = runGame('channel-1', client as never, {
+    db,
+    getWords: async () => [
+      { word: 'melati', clue: 'Bunga putih yang harum.' },
+      { word: 'sepeda', clue: 'Kendaraan roda dua tanpa mesin.' },
+    ],
+    roundTimeoutMs: 100,
+    transitionDelayMs: 0,
+  });
+
+  await waitForRoundHandler();
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
+  await waitForRoundIndex('channel-1', 1);
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'sepeda') as never);
+  await game;
+
+  assert.equal(sentPayloads.length, 1);
+  assert.equal(editedPayloads.length >= 4, true);
+  assert.equal(getRoom('channel-1'), null);
+  db.close();
+});
+
+test('runGame falls back to a new message if the persistent message edit fails', async () => {
+  resetSusunKataRoomsForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const { client, sentPayloads } = createClientHarnessWithFailingFirstEdit();
+  createRoom('channel-1', 'creator-1', 1);
+  startGame('channel-1');
+
+  const game = runGame('channel-1', client as never, {
+    db,
+    getWords: async (): Promise<WordEntry[]> => [{ word: 'melati', clue: 'Bunga putih yang harum.' }],
+    roundTimeoutMs: 100,
+    transitionDelayMs: 0,
+  });
+
+  await waitForRoundHandler();
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
+  await game;
+
+  assert.equal(sentPayloads.length, 2);
   assert.equal(getRoom('channel-1'), null);
   db.close();
 });

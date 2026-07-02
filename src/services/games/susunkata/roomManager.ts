@@ -46,6 +46,7 @@ function armWaitingExpiry(room: SusunKataRoom, timeoutMs: number): void {
       destroyRoom(room.channelId);
     }
   }, timeoutMs);
+  room.expiryTimer.unref?.();
 }
 
 export function createRoom(
@@ -54,8 +55,13 @@ export function createRoom(
   rounds: number,
   options: CreateRoomOptions = {},
 ): SusunKataRoom {
-  if (rooms.has(channelId)) {
+  const existingRoom = rooms.get(channelId);
+  if (existingRoom && (existingRoom.phase === 'waiting' || existingRoom.phase === 'playing')) {
     throw new Error('Susun Kata room already exists in this channel');
+  }
+  if (existingRoom) {
+    clearExpiry(existingRoom);
+    rooms.delete(channelId);
   }
 
   const now = options.nowMs?.() ?? Date.now();

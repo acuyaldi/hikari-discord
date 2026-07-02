@@ -30,6 +30,23 @@ test('createRoom rejects a second active room in the same channel', () => {
   assert.throws(() => createRoom('channel-1', 'creator-2', 5), /already exists/i);
 });
 
+test('createRoom rejects waiting and playing rooms but allows stale finished rooms', () => {
+  resetSusunKataRoomsForTest();
+  const waitingRoom = createRoom('channel-1', 'creator-1', 5, { roomTimeoutMs: 1_000 });
+
+  assert.throws(() => createRoom('channel-1', 'creator-2', 5), /already exists/i);
+
+  waitingRoom.phase = 'playing';
+  assert.throws(() => createRoom('channel-1', 'creator-2', 5), /already exists/i);
+
+  waitingRoom.phase = 'finished';
+  const replacement = createRoom('channel-1', 'creator-2', 3, { roomTimeoutMs: 1_000 });
+
+  assert.equal(replacement.creatorId, 'creator-2');
+  assert.equal(replacement.rounds, 3);
+  resetSusunKataRoomsForTest();
+});
+
 test('joinRoom adds players once while room is waiting', () => {
   resetSusunKataRoomsForTest();
   createRoom('channel-1', 'creator-1', 5);

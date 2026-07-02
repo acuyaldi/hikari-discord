@@ -1,8 +1,8 @@
-import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import { PermissionFlagsBits, SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 
 import { SUSUNKATA_MAX_ROUNDS } from '../config/env';
 import type { CommandContext } from '../types';
-import { createRoom } from '../services/games/susunkata/roomManager';
+import { createRoom, destroyRoom, getRoom } from '../services/games/susunkata/roomManager';
 import {
   createSusunKataLobbyComponents,
   createSusunKataLobbyEmbed,
@@ -19,6 +19,12 @@ export const data = new SlashCommandBuilder()
       .setDescription(`Jumlah ronde (default ${DEFAULT_ROUNDS}, maksimal ${SUSUNKATA_MAX_ROUNDS})`)
       .setRequired(false)
       .setMinValue(1),
+  )
+  .addBooleanOption((option) =>
+    option
+      .setName('force_clear')
+      .setDescription('Bersihkan room Susun Kata yang tersangkut di channel ini')
+      .setRequired(false),
   );
 
 export async function execute(
@@ -27,6 +33,26 @@ export async function execute(
 ): Promise<void> {
   if (!interaction.guildId || !interaction.channelId) {
     await interaction.reply({ content: 'Susun Kata cuma bisa dimainkan di server.', ephemeral: true });
+    return;
+  }
+
+  if (interaction.options.getBoolean('force_clear') ?? false) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({
+        content: 'Butuh izin Manage Server untuk membersihkan room Susun Kata secara paksa.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const hadRoom = Boolean(getRoom(interaction.channelId));
+    destroyRoom(interaction.channelId);
+    await interaction.reply({
+      content: hadRoom
+        ? 'Room Susun Kata di channel ini sudah dibersihkan.'
+        : 'Tidak ada room Susun Kata aktif di channel ini.',
+      ephemeral: true,
+    });
     return;
   }
 

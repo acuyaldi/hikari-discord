@@ -27,6 +27,8 @@ type AnswerMessage = Pick<Message, 'content'> & {
 };
 
 type AnswerHandler = (message: AnswerMessage) => Promise<boolean>;
+type GameMessage = { edit: (payload: unknown) => Promise<unknown> };
+type GameChannel = { send: (payload: unknown) => Promise<GameMessage> };
 
 const activeAnswerHandlers = new Map<string, AnswerHandler>();
 
@@ -98,22 +100,39 @@ function buildFinalEmbed(roomPlayers: string[], scores: Map<string, number>): Em
     .setDescription(description || 'Belum ada skor.');
 }
 
-async function fetchTextChannel(client: Client, channelId: string): Promise<{ send: (payload: unknown) => Promise<{ edit: (payload: unknown) => Promise<unknown> }> } | null> {
+async function fetchTextChannel(client: Client, channelId: string): Promise<GameChannel | null> {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel || !('send' in channel)) return null;
   return channel as never;
 }
 
+async function sendOrEditGameMessage(
+  channel: GameChannel,
+  message: GameMessage | null,
+  payload: unknown,
+): Promise<GameMessage> {
+  if (!message) return channel.send(payload);
+
+  try {
+    await message.edit(payload);
+    return message;
+  } catch (error) {
+    console.error('[SusunKata] failed to edit game message, sending a replacement:', error);
+    return channel.send(payload);
+  }
+}
+
 async function playRound(
   roomChannelId: string,
-  channel: { send: (payload: unknown) => Promise<{ edit: (payload: unknown) => Promise<unknown> }> },
+  channel: GameChannel,
+  gameMessage: GameMessage | null,
   entry: WordEntry,
   roundNumber: number,
   totalRounds: number,
   dependencies: Required<Pick<RunGameDependencies, 'roundTimeoutMs' | 'pointsPerRound' | 'nowMs'>>,
-): Promise<void> {
+): Promise<GameMessage | null> {
   const room = getRoom(roomChannelId);
-  if (!room) return;
+  if (!room) return gameMessage;
 
   room.currentRoundIndex = roundNumber - 1;
   room.currentWordEntry = entry;
@@ -124,7 +143,7 @@ async function playRound(
   let elapsedMs: number | null = null;
   let finishRound: (() => void) | null = null;
 
-  const message = await channel.send({
+  let message = await sendOrEditGameMessage(channel, gameMessage, {
     embeds: [
       buildRoundEmbed({
         entry,
@@ -169,9 +188,11 @@ async function playRound(
   });
 
   await finishPromise;
-  await message.edit({
+  message = await sendOrEditGameMessage(channel, message, {
     embeds: [buildResultEmbed({ entry, winnerId, elapsedMs })],
   });
+
+  return message;
 }
 
 export async function handleSusunKataAnswerMessage(message: AnswerMessage): Promise<boolean> {
@@ -205,6 +226,7 @@ export async function runGame(
   try {
     const channel = await fetchTextChannel(client, channelId);
     if (!channel) throw new Error('Susun Kata channel not found');
+    let gameMessage: GameMessage | null = null;
 
     const words = await getWords(room.rounds);
     const playableWords = words.slice(0, room.rounds);
@@ -215,11 +237,19 @@ export async function runGame(
     }
 
     for (let index = 0; index < playableWords.length; index += 1) {
-      await playRound(channelId, channel, playableWords[index]!, index + 1, playableWords.length, {
-        roundTimeoutMs,
-        pointsPerRound,
-        nowMs,
-      });
+      gameMessage = await playRound(
+        channelId,
+        channel,
+        gameMessage,
+        playableWords[index]!,
+        index + 1,
+        playableWords.length,
+        {
+          roundTimeoutMs,
+          pointsPerRound,
+          nowMs,
+        },
+      );
 
       if (index < playableWords.length - 1) {
         await delay(transitionDelayMs);
@@ -235,7 +265,7 @@ export async function runGame(
       }
     }
 
-    await channel.send({
+    await sendOrEditGameMessage(channel, gameMessage, {
       embeds: [buildFinalEmbed(Array.from(latestRoom.players), latestRoom.scores)],
     });
   } catch (error) {
