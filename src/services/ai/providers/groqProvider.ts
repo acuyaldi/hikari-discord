@@ -7,6 +7,7 @@ import {
   runWithTools,
 } from '../../tools/toolExecutionLoop';
 import { openAICompatibleToolAdapter } from '../../tools/providerAdapters/openaiCompatibleToolAdapter';
+import { toolsForProvider } from '../../tools/providerToolSelection';
 
 export class GroqProvider implements AIProvider {
   readonly name = AIProviderName.GROQ;
@@ -64,7 +65,8 @@ export class GroqProvider implements AIProvider {
     request: ChatRequest,
     messages: Array<Record<string, unknown>>,
   ): Promise<string | null> {
-    if (!request.tools || request.tools.length === 0 || request.hasImage) return null;
+    const tools = toolsForProvider(this.name, request.tools);
+    if (tools.length === 0 || request.hasImage) return null;
 
     const replyText = await runWithTools({
       initialState: { messages },
@@ -75,7 +77,7 @@ export class GroqProvider implements AIProvider {
         tools: state.tools as never,
       }),
       adapter: openAICompatibleToolAdapter,
-      toolDefinitions: request.tools,
+      toolDefinitions: tools,
     });
 
     return replyText === TOOL_LOOP_FALLBACK_MESSAGE ? null : replyText;
