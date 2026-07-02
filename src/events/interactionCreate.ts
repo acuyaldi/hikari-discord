@@ -2,6 +2,7 @@ import { Client } from 'discord.js';
 import db from '../database/sqlite';
 import { checkCooldown } from '../utils/cooldown';
 import { handleWerewolfComponentInteraction } from '../services/werewolf/game';
+import { handleSusunKataComponentInteraction } from '../services/games/susunkata/buttonHandlers';
 import type { Command } from '../types';
 
 const AI_COOLDOWN_COMMANDS = new Set(['analyze', 'draw']);
@@ -71,6 +72,10 @@ export function registerInteractionCreate(client: Client, allCommands: Command[]
       try {
         const handled = await handleWerewolfComponentInteraction(interaction, db);
         if (handled) return;
+        if (isButtonInteraction) {
+          const handledSusunKata = await handleSusunKataComponentInteraction(interaction);
+          if (handledSusunKata) return;
+        }
       } catch (error) {
         console.error('[InteractionCreate] component failed:', error);
         if (!interaction.replied && !interaction.deferred) {

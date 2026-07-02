@@ -10,6 +10,7 @@ import { generateVoice } from '../services/tts';
 import { hasVoiceIntent } from '../services/ttsIntent';
 import { checkCooldown } from '../utils/cooldown';
 import { chat } from '../services/chat';
+import { handleSusunKataAnswerMessage } from '../services/games/susunkata/gameLoop';
 import { runMemoryPipeline } from '../services/memory/memoryPipeline';
 import { logSummary } from '../services/summary/summaryDebug';
 import { maybeRunSummaryPipeline } from '../services/summary/summaryPipeline';
@@ -43,6 +44,7 @@ interface RegisterMessageCreateDependencies {
   buildMultiUserContext?: typeof buildMultiUserContext;
   getChannelTranscript?: typeof getChannelTranscript;
   claimMessageDelivery?: (messageId: string) => boolean;
+  handleSusunKataAnswer?: typeof handleSusunKataAnswerMessage;
 }
 
 interface BuildSummaryRecentMessagesOptions {
@@ -200,6 +202,7 @@ export function registerMessageCreate(
   const buildContext = dependencies.buildMultiUserContext ?? buildMultiUserContext;
   const getTranscript = dependencies.getChannelTranscript ?? getChannelTranscript;
   const claimDelivery = dependencies.claimMessageDelivery ?? claimMessageDelivery;
+  const handleSusunKataAnswer = dependencies.handleSusunKataAnswer ?? handleSusunKataAnswerMessage;
   const processedMessageIds = new Set<string>();
   const inFlightRequestFingerprints = new Set<string>();
   const recentRequestFingerprints = new Map<string, number>();
@@ -210,6 +213,8 @@ export function registerMessageCreate(
     if (processedMessageIds.has(message.id)) return;
     processedMessageIds.add(message.id);
     setTimeout(() => processedMessageIds.delete(message.id), MESSAGE_DEDUPE_TTL_MS);
+
+    if (await handleSusunKataAnswer(message)) return;
 
     const botUser = client.user!;
     const botUserId = botUser.id;

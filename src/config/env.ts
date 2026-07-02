@@ -93,6 +93,34 @@ export const MENTION_CONTEXT_LOOKBACK = Number.parseInt(
   10,
 );
 export const DEBUG_CONTEXT = process.env.DEBUG_CONTEXT === 'true';
+export const SUSUNKATA_WORD_MIN_LENGTH = Number.parseInt(
+  process.env.SUSUNKATA_WORD_MIN_LENGTH ?? '5',
+  10,
+);
+export const SUSUNKATA_WORD_MAX_LENGTH = Number.parseInt(
+  process.env.SUSUNKATA_WORD_MAX_LENGTH ?? '9',
+  10,
+);
+export const SUSUNKATA_MAX_ROUNDS = Number.parseInt(
+  process.env.SUSUNKATA_MAX_ROUNDS ?? '10',
+  10,
+);
+export const SUSUNKATA_ROUND_TIMEOUT_SECONDS = Number.parseInt(
+  process.env.SUSUNKATA_ROUND_TIMEOUT_SECONDS ?? '20',
+  10,
+);
+export const SUSUNKATA_ROUND_TRANSITION_DELAY_MS = Number.parseInt(
+  process.env.SUSUNKATA_ROUND_TRANSITION_DELAY_MS ?? '4000',
+  10,
+);
+export const SUSUNKATA_POINTS_PER_ROUND = Number.parseInt(
+  process.env.SUSUNKATA_POINTS_PER_ROUND ?? '10',
+  10,
+);
+export const SUSUNKATA_ROOM_TIMEOUT_SECONDS = Number.parseInt(
+  process.env.SUSUNKATA_ROOM_TIMEOUT_SECONDS ?? '300',
+  10,
+);
 
 export const DEFAULT_TTS_TRIGGER_KEYWORDS = [
   'jawab pakai suara',

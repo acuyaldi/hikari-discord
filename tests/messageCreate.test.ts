@@ -264,3 +264,65 @@ test('registerMessageCreate ignores rapid duplicate prompt with different messag
   assert.equal(chatCalls, 1);
   assert.equal(replies.length, 1);
 });
+
+test('registerMessageCreate intercepts active susunkata player answers before normal chat', async () => {
+  const harness = createClientHarness();
+  let chatCalls = 0;
+  let answerCalls = 0;
+
+  registerMessageCreate(harness.client as never, {
+    handleSusunKataAnswer: async () => {
+      answerCalls += 1;
+      return true;
+    },
+    claimMessageDelivery: () => true,
+    checkCooldown: () => false,
+    buildMultiUserContext: async () => multiUserContextResult(),
+    chat: async () => {
+      chatCalls += 1;
+      return {
+        replyText: 'normal chat should not run',
+        engineIndicator: '',
+      };
+    },
+    runMemoryPipeline: async () => undefined,
+    maybeRunSummaryPipeline: () => undefined,
+  });
+
+  await harness.dispatch(createMessage({
+    content: 'melati',
+    mentions: {
+      has: () => false,
+      users: new Map(),
+      members: new Map(),
+    },
+  }) as never);
+
+  assert.equal(answerCalls, 1);
+  assert.equal(chatCalls, 0);
+});
+
+test('registerMessageCreate keeps normal behavior when susunkata does not intercept', async () => {
+  const harness = createClientHarness();
+  let chatCalls = 0;
+
+  registerMessageCreate(harness.client as never, {
+    handleSusunKataAnswer: async () => false,
+    claimMessageDelivery: () => true,
+    checkCooldown: () => false,
+    buildMultiUserContext: async () => multiUserContextResult(),
+    chat: async () => {
+      chatCalls += 1;
+      return {
+        replyText: 'normal chat runs',
+        engineIndicator: '',
+      };
+    },
+    runMemoryPipeline: async () => undefined,
+    maybeRunSummaryPipeline: () => undefined,
+  });
+
+  await harness.dispatch(createMessage() as never);
+
+  assert.equal(chatCalls, 1);
+});

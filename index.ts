@@ -20,6 +20,7 @@ import * as forgetCmd from './src/commands/forget';
 import * as werewolfCmd from './src/commands/werewolf';
 import * as triviaCmd from './src/commands/trivia';
 import * as triviaLeaderboardCmd from './src/commands/triviaLeaderboard';
+import * as susunkataCmd from './src/commands/susunkata';
 
 const client = new Client({
   intents: [
@@ -45,6 +46,7 @@ const commands: Command[] = [
   werewolfCmd,
   triviaCmd,
   triviaLeaderboardCmd,
+  susunkataCmd,
 ];
 
 registerDefaultTools();
