@@ -903,7 +903,20 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       expect(game.phase).toBe('day');
     });
 
-    test('cancels the pending night timeout once everyone has already submitted, so it does not double-announce the day phase', async () => {
+    // NOTE: This test proves that the manual full-submission resolve path cancels the
+    // pending nightTimers entry (via clearGuildTimers -> clearTimeout), so the scheduled
+    // setTimeout callback never fires and therefore never re-runs any night/day resolution
+    // logic at all. It does NOT exercise resolveNightPhase's own internal
+    // `game.phase !== 'night'` guard, because a timer cancelled with clearTimeout never
+    // invokes its callback in the first place -- there is no second invocation of
+    // resolveNightPhase here for the guard to short-circuit. Reaching that guard branch as
+    // "invoked-with-stale-phase-and-correctly-returns-early" would require either exporting
+    // the internal `resolveNightPhase` for direct testing, or a black-box mock hook that
+    // mutates the DB phase mid-flight through an unrelated internal call (e.g. the
+    // `client.guilds.fetch` used by `displayName`) purely to land the write in the right
+    // await window -- both were judged out of scope / too fragile for this fix. This is a
+    // known, intentionally-flagged test gap, not a claim that the guard is verified.
+    test('clears the pending night timer once everyone has already submitted, so the scheduled timeout never fires and never re-runs night/day resolution', async () => {
       const { client, mainMessage } = createMockClient();
       await launchReadyGameWithFourPlayers(db, client);
 
@@ -939,11 +952,17 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
         db,
       );
 
+      // The manual full-submission resolve above already ran resolveNightPhase once,
+      // which produced exactly one DAY embed edit.
       const dayEditsBefore = mainMessage.edit.mock.calls.filter(
         ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
       ).length;
       expect(dayEditsBefore).toBe(1);
 
+      // That same resolve call cleared this guild's nightTimers entry via clearGuildTimers,
+      // so the setTimeout scheduled in startNightPhase was removed from Node's timer queue
+      // before it could fire. Advancing fake timers past its original delay should therefore
+      // invoke no callback at all for this guild -- not "invoke it and have it correctly no-op".
       await jest.advanceTimersByTimeAsync(WEREWOLF_NIGHT_ACTION_MS);
 
       const dayEditsAfter = mainMessage.edit.mock.calls.filter(
