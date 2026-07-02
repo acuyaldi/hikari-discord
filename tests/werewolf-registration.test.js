@@ -376,13 +376,21 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       expect(game.phase).toBe('registration');
     });
 
-    test('host can launch with >= 4 players, game moves to night, and roles are assigned', async () => {
-      const { client } = createMockClient();
+    test('host can launch with >= 4 players, game moves to night, sends a channel notification, and roles are assigned', async () => {
+      const { client, channel } = createMockClient();
       const launchInteraction = await launchReadyGameWithFourPlayers(db, client);
 
       expect(launchInteraction.deferUpdate).toHaveBeenCalledTimes(1);
       const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
       expect(['setup', 'night']).toContain(game.phase);
+      expect(channel.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringMatching(/Malam tiba/i),
+          allowedMentions: expect.objectContaining({
+            users: expect.arrayContaining(['host-1', 'user-2', 'user-3', 'user-4']),
+          }),
+        }),
+      );
 
       const players = db.prepare('SELECT user_id, role FROM ww_players WHERE guild_id = ? ORDER BY joined_at ASC').all('guild-1');
       expect(players).toHaveLength(4);
@@ -825,6 +833,31 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
         ([, payload]) => payload?.SendMessages === false,
       );
       expect(allLockCalls.length).toBeGreaterThan(1);
+    });
+
+    test('force voting from night unlocks the channel and sends a voting notification', async () => {
+      const { client, channel } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+      channel.permissionOverwrites.edit.mockClear();
+      channel.send.mockClear();
+
+      const forceVoteInteraction = createCommandInteraction({ client, userId: 'host-1' });
+      await forceWerewolfVoting(forceVoteInteraction, db);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game.phase).toBe('voting');
+      expect(channel.permissionOverwrites.edit).toHaveBeenCalledWith(
+        channel.guild.roles.everyone,
+        expect.objectContaining({ SendMessages: null }),
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringMatching(/Voting dimulai/i),
+          allowedMentions: expect.objectContaining({
+            users: expect.arrayContaining(['host-1', 'user-2', 'user-3', 'user-4']),
+          }),
+        }),
+      );
     });
   });
 

@@ -174,6 +174,43 @@ async function updateMainGameMessage(
   await message.edit({ embeds: payload.embeds, components: payload.components ?? [] }).catch(() => undefined);
 }
 
+async function sendNightAnnouncement(
+  client: Client,
+  game: WerewolfGameRow,
+  players: WerewolfPlayerRow[],
+  note?: string,
+): Promise<void> {
+  const channel = await fetchGameChannel(client, game);
+  if (!channel || !('send' in channel)) return;
+
+  const aliveUserIds = mentionsForPlayers(players);
+  await channel.send({
+    content: [
+      `${aliveUserIds.map((userId) => `<@${userId}>`).join(' ')}`,
+      `🌙 **Malam tiba.** ${note ?? 'Channel dikunci. Cek DM untuk aksi role kalian.'}`,
+    ].filter(Boolean).join('\n'),
+    allowedMentions: { users: aliveUserIds },
+  }).catch(() => undefined);
+}
+
+async function sendVotingAnnouncement(
+  client: Client,
+  game: WerewolfGameRow,
+  players: WerewolfPlayerRow[],
+): Promise<void> {
+  const channel = await fetchGameChannel(client, game);
+  if (!channel || !('send' in channel)) return;
+
+  const aliveUserIds = mentionsForPlayers(players);
+  await channel.send({
+    content: [
+      `${aliveUserIds.map((userId) => `<@${userId}>`).join(' ')}`,
+      '🗳️ **Voting dimulai.** Pilih pemain yang mau dikeluarkan lewat menu di pesan Werewolf.',
+    ].filter(Boolean).join('\n'),
+    allowedMentions: { users: aliveUserIds },
+  }).catch(() => undefined);
+}
+
 async function displayName(client: Client, guildId: string, userId: string): Promise<string> {
   const guild = await client.guilds.fetch(guildId).catch(() => null);
   const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
@@ -295,6 +332,8 @@ async function startVotingPhase(client: Client, db: Database.Database, guildId: 
 
   clearWerewolfVotes(db, guildId);
   setWerewolfPhase(db, guildId, 'voting');
+  await setChannelNightLock(client, game, false);
+  await sendVotingAnnouncement(client, game, players);
 
   const voteOptions = await buildSelectOptions(client, guildId, players);
   await updateMainGameMessage(client, db, guildId, {
@@ -366,9 +405,10 @@ async function startNightPhase(
   clearWerewolfVotes(db, guildId);
   clearWerewolfNightTargets(db, guildId);
   setWerewolfPhase(db, guildId, 'night');
-  await setChannelNightLock(client, game, true);
 
   const players = listWerewolfPlayers(db, guildId);
+  await sendNightAnnouncement(client, game, players, note);
+  await setChannelNightLock(client, game, true);
   await updateMainGameMessage(client, db, guildId, {
     embeds: [createPhaseEmbed({
       phase: 'night',

@@ -14,7 +14,7 @@ test('generateWordBatch asks AI for clues for selected words only', async () => 
   let promptSeen = '';
   const entries = await generateWordBatch(2, {
     selectWords: () => ['melati', 'sepeda'],
-    directGenerate: async (_count, prompt) => {
+    providerGenerate: async (_count, prompt) => {
       promptSeen = prompt;
       return JSON.stringify([
         { word: 'melati', clue: 'Bunga putih yang harum.' },
@@ -31,7 +31,7 @@ test('generateWordBatch asks AI for clues for selected words only', async () => 
   assert.match(promptSeen, /buatkan satu clue singkat/i);
 });
 
-test('generateWordBatch falls back to provider router after two primary failures', async () => {
+test('generateWordBatch uses provider router before direct Gemini by default', async () => {
   let directCalls = 0;
   let providerCalls = 0;
 
@@ -39,7 +39,7 @@ test('generateWordBatch falls back to provider router after two primary failures
     selectWords: () => ['sepeda'],
     directGenerate: async () => {
       directCalls += 1;
-      throw new Error('primary unavailable');
+      throw new Error('direct Gemini should not be called first');
     },
     providerGenerate: async () => {
       providerCalls += 1;
@@ -47,8 +47,29 @@ test('generateWordBatch falls back to provider router after two primary failures
     },
   });
 
-  assert.equal(directCalls, 2);
+  assert.equal(directCalls, 0);
   assert.equal(providerCalls, 1);
+  assert.deepEqual(entries, [{ word: 'sepeda', clue: 'Kendaraan roda dua tanpa mesin.' }]);
+});
+
+test('generateWordBatch falls back to direct Gemini after provider router failure', async () => {
+  let directCalls = 0;
+  let providerCalls = 0;
+
+  const entries = await generateWordBatch(1, {
+    selectWords: () => ['sepeda'],
+    providerGenerate: async () => {
+      providerCalls += 1;
+      throw new Error('provider unavailable');
+    },
+    directGenerate: async () => {
+      directCalls += 1;
+      return '[{"word":"sepeda","clue":"Kendaraan roda dua tanpa mesin."}]';
+    },
+  });
+
+  assert.equal(providerCalls, 1);
+  assert.equal(directCalls, 1);
   assert.deepEqual(entries, [{ word: 'sepeda', clue: 'Kendaraan roda dua tanpa mesin.' }]);
 });
 
@@ -75,7 +96,7 @@ test('getValidatedWordBatch retries clue generation for a word whose clue leaks 
 
   const entries = await getValidatedWordBatch(3, {
     selectWords: () => ['melati', 'sepeda', 'kertas'],
-    directGenerate: async (_count, prompt) => {
+    providerGenerate: async (_count, prompt) => {
       prompts.push(prompt);
       if (prompt.includes('melati') && prompt.includes('sepeda')) {
         return JSON.stringify([

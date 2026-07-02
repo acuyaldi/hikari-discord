@@ -3,6 +3,7 @@ import db from '../database/sqlite';
 import { checkCooldown } from '../utils/cooldown';
 import { handleWerewolfComponentInteraction } from '../services/werewolf/game';
 import { handleSusunKataComponentInteraction } from '../services/games/susunkata/buttonHandlers';
+import { handleTriviaComponentInteraction } from '../commands/trivia';
 import type { Command } from '../types';
 
 const AI_COOLDOWN_COMMANDS = new Set(['analyze', 'draw']);
@@ -75,6 +76,8 @@ export function registerInteractionCreate(client: Client, allCommands: Command[]
         if (isButtonInteraction) {
           const handledSusunKata = await handleSusunKataComponentInteraction(interaction);
           if (handledSusunKata) return;
+          const handledTrivia = await handleTriviaComponentInteraction(interaction, { db });
+          if (handledTrivia) return;
         }
       } catch (error) {
         console.error('[InteractionCreate] component failed:', error);

@@ -3,8 +3,10 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import {
+  execute,
   executeTrivia,
   generateTriviaQuestionWithRetry,
+  handleTriviaComponentInteraction,
   resetTriviaRuntimeStateForTest,
   TRIVIA_MODEL,
 } from '../src/commands/trivia';
@@ -118,8 +120,148 @@ function createButton(
   };
 }
 
+function createTriviaCommandHarness(channelId = 'channel-1', userId = 'host') {
+  const replies: Array<unknown> = [];
+  const editReplyPayloads: Array<unknown> = [];
+  const message = { id: `trivia-lobby-${channelId}` };
+  const interaction = {
+    guildId: 'guild-1',
+    channelId,
+    user: { id: userId },
+    options: {
+      getSubcommand: () => 'mulai',
+      getInteger: () => 2,
+    },
+    reply: async (payload: unknown) => {
+      replies.push(payload);
+      return undefined;
+    },
+    fetchReply: async () => message,
+    editReply: async (payload: unknown) => {
+      editReplyPayloads.push(payload);
+      return undefined;
+    },
+  };
+
+  return { interaction, replies, editReplyPayloads, message };
+}
+
+function createLobbyButtonInteraction(customId: string, userId: string, channelId = 'channel-1') {
+  const replies: Array<unknown> = [];
+  const editReplyPayloads: Array<unknown> = [];
+  const followUps: Array<unknown> = [];
+  const message = {
+    id: `trivia-lobby-${channelId}`,
+    createMessageComponentCollector: () => ({
+      on: () => undefined,
+    }),
+  };
+
+  return {
+    interaction: {
+      customId,
+      guildId: 'guild-1',
+      channelId,
+      user: { id: userId },
+      isButton: () => true,
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return undefined;
+      },
+      deferUpdate: async () => undefined,
+      editReply: async (payload: unknown) => {
+        editReplyPayloads.push(payload);
+        return undefined;
+      },
+      followUp: async (payload: unknown) => {
+        followUps.push(payload);
+        return undefined;
+      },
+      fetchReply: async () => message,
+    },
+    replies,
+    editReplyPayloads,
+    followUps,
+  };
+}
+
+function componentCustomIds(payload: unknown): string[] {
+  const row = (payload as { components?: Array<{ components?: Array<{ data?: { custom_id?: string } }> }> }).components?.[0];
+  return row?.components?.map((component) => component.data?.custom_id).filter((id): id is string => typeof id === 'string') ?? [];
+}
+
 test('trivia primary Gemini model uses current Flash-Lite tier', () => {
   assert.equal(TRIVIA_MODEL, 'gemini-2.5-flash-lite');
+});
+
+test('trivia mulai opens a lobby instead of starting questions immediately', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const harness = createTriviaCommandHarness();
+
+  await execute(harness.interaction as never, { db } as never);
+
+  assert.equal(harness.replies.length, 1);
+  const reply = harness.replies[0] as { embeds?: unknown[]; components?: unknown[] };
+  assert.equal(reply.embeds?.length, 1);
+  assert.equal(reply.components?.length, 1);
+  assert.equal(harness.editReplyPayloads.length, 0);
+  db.close();
+});
+
+test('trivia lobby lets users join and only host can start', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const harness = createTriviaCommandHarness();
+
+  await execute(harness.interaction as never, { db } as never);
+  const ids = componentCustomIds(harness.replies[0]);
+  const joinId = ids.find((id) => id.includes(':join:'));
+  const startId = ids.find((id) => id.includes(':start:'));
+  assert.ok(joinId);
+  assert.ok(startId);
+
+  const join = createLobbyButtonInteraction(joinId, 'user-2');
+  assert.equal(await handleTriviaComponentInteraction(join.interaction as never, { db } as never), true);
+  assert.equal(join.followUps.length, 1);
+  assert.equal(join.editReplyPayloads.length, 1);
+
+  const nonHostStart = createLobbyButtonInteraction(startId, 'user-2');
+  assert.equal(await handleTriviaComponentInteraction(nonHostStart.interaction as never, { db } as never), true);
+  assert.match((nonHostStart.replies[0] as { content?: string }).content ?? '', /host/i);
+
+  db.close();
+});
+
+test('trivia lobby host start launches the trivia session', async () => {
+  resetTriviaRuntimeStateForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  const harness = createTriviaCommandHarness();
+
+  await execute(harness.interaction as never, { db } as never);
+  const startId = componentCustomIds(harness.replies[0]).find((id) => id.includes(':start:'));
+  assert.ok(startId);
+
+  const start = createLobbyButtonInteraction(startId, 'host');
+  assert.equal(
+    await handleTriviaComponentInteraction(start.interaction as never, { db } as never, {
+      questionCount: 1,
+      generateQuestion: async () => ({
+        kategori: 'Sains',
+        soal: 'Planet merah?',
+        pilihan: ['A. Mars', 'B. Venus', 'C. Jupiter', 'D. Saturnus'],
+        jawaban_benar: 'A',
+      }),
+    }),
+    true,
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(start.editReplyPayloads.length >= 1, true);
+  db.close();
 });
 
 test('trivia awards +10 points to the first correct answer', async () => {

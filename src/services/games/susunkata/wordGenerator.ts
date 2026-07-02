@@ -173,23 +173,18 @@ async function requestCluesForWords(
   const prompt = promptForWords(words);
   let lastError: unknown;
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      return parseClueBatch(await dependencies.directGenerate(words.length, prompt));
-    } catch (error) {
-      lastError = error;
-      console.error(
-        `[SusunKata] generate clue batch failed (attempt ${attempt}/2):`,
-        error,
-      );
-    }
-  }
-
   try {
     return parseClueBatch(await dependencies.providerGenerate(words.length, prompt));
   } catch (error) {
     lastError = error;
-    console.error('[SusunKata] provider-router clue fallback also failed:', error);
+    console.error('[SusunKata] provider-router clue generation failed:', error);
+  }
+
+  try {
+    return parseClueBatch(await dependencies.directGenerate(words.length, prompt));
+  } catch (error) {
+    lastError = error;
+    console.error('[SusunKata] direct Gemini clue fallback also failed:', error);
   }
 
   throw lastError ?? new Error('Susun Kata clue generation failed');

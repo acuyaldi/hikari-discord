@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Message,
 } from "discord.js";
@@ -35,11 +36,25 @@ const CORRECT_ANSWER_POINTS = 10;
 const WRONG_ANSWER_POINTS = -5;
 const RECENT_QUESTION_LIMIT = 50;
 const INTER_ROUND_READY_DELAY_MS = 4_000;
+const TRIVIA_LOBBY_TIMEOUT_MS = 10 * 60_000;
 
 const ANSWER_KEYS = ["A", "B", "C", "D"] as const;
 
 type AnswerKey = (typeof ANSWER_KEYS)[number];
 const activeTriviaChannels = new Set<string>();
+
+interface TriviaLobby {
+  channelKey: string;
+  guildId: string;
+  channelId: string | null;
+  hostUserId: string;
+  questionCount: number;
+  players: Set<string>;
+  timeout: NodeJS.Timeout | null;
+  message?: { edit?: (payload: unknown) => Promise<unknown> } | null;
+}
+
+const triviaLobbies = new Map<string, TriviaLobby>();
 
 const DEFAULT_FALLBACK_QUESTION: TriviaQuestion = {
   kategori: "Umum",
@@ -105,6 +120,90 @@ export const data = new SlashCommandBuilder()
         "Reset skor trivia server ini (khusus admin/manager server)",
       ),
   );
+
+type TriviaLobbyAction = "join" | "start" | "cancel";
+
+function channelKeyFor(guildId: string, channelId: string | null | undefined): string {
+  return channelId ?? `guild:${guildId}`;
+}
+
+function buildTriviaLobbyId(action: TriviaLobbyAction, channelKey: string): string {
+  return `trivia:lobby:${action}:${channelKey}`;
+}
+
+function parseTriviaLobbyId(customId: string): { action: TriviaLobbyAction; channelKey: string } | null {
+  const parts = customId.split(":");
+  if (parts[0] !== "trivia" || parts[1] !== "lobby") return null;
+  const action = parts[2];
+  if (action !== "join" && action !== "start" && action !== "cancel") return null;
+  const channelKey = parts.slice(3).join(":");
+  if (!channelKey) return null;
+  return { action, channelKey };
+}
+
+function createTriviaLobbyEmbed(lobby: TriviaLobby): EmbedBuilder {
+  const players = Array.from(lobby.players);
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("Trivia Lobby")
+    .setDescription(
+      [
+        "Lobby trivia sudah dibuka.",
+        `Host: <@${lobby.hostUserId}>`,
+        `Soal: **${lobby.questionCount}**`,
+        `Pemain: **${players.length}**`,
+      ].join("\n"),
+    )
+    .addFields({
+      name: "Pemain Terdaftar",
+      value: players.length > 0 ? players.map((userId) => `<@${userId}>`).join("\n") : "Belum ada pemain.",
+    })
+    .setFooter({ text: "Gabung dulu, host mulai kalau semua sudah siap." });
+}
+
+function createTriviaLobbyComponents(channelKey: string): ActionRowBuilder<ButtonBuilder>[] {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(buildTriviaLobbyId("join", channelKey))
+        .setLabel("Gabung")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(buildTriviaLobbyId("start", channelKey))
+        .setLabel("Mulai")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(buildTriviaLobbyId("cancel", channelKey))
+        .setLabel("Batal")
+        .setStyle(ButtonStyle.Danger),
+    ),
+  ];
+}
+
+function clearTriviaLobby(lobby: TriviaLobby): void {
+  if (lobby.timeout) {
+    clearTimeout(lobby.timeout);
+    lobby.timeout = null;
+  }
+  triviaLobbies.delete(lobby.channelKey);
+}
+
+function armTriviaLobbyTimeout(lobby: TriviaLobby): void {
+  lobby.timeout = setTimeout(() => {
+    if (triviaLobbies.get(lobby.channelKey) !== lobby) return;
+    triviaLobbies.delete(lobby.channelKey);
+    void lobby.message?.edit?.({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x99aab5)
+          .setTitle("Trivia Lobby Ditutup")
+          .setDescription("Lobby trivia otomatis ditutup karena tidak dimulai."),
+      ],
+      components: [],
+    }).catch(() => undefined);
+  }, TRIVIA_LOBBY_TIMEOUT_MS);
+  lobby.timeout.unref?.();
+}
 
 function sanitizeJsonResponse(raw: string): string {
   const trimmed = raw.trim();
@@ -557,7 +656,54 @@ export async function execute(
 
   const questionCount =
     interaction.options.getInteger("soal") ?? DEFAULT_SESSION_QUESTION_COUNT;
-  await executeTrivia(interaction, context, { questionCount });
+  await executeTriviaLobby(interaction, context, { questionCount });
+}
+
+async function executeTriviaLobby(
+  interaction: ChatInputCommandInteraction,
+  _context: CommandContext,
+  dependencies: Pick<TriviaRuntimeDependencies, "questionCount"> = {},
+): Promise<void> {
+  if (!interaction.guildId) {
+    await interaction.reply({
+      content: "Trivia hanya bisa dimainkan di server.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const channelKey = channelKeyFor(interaction.guildId, interaction.channelId);
+  if (activeTriviaChannels.has(channelKey) || triviaLobbies.has(channelKey)) {
+    await interaction.reply({
+      content: "Masih ada lobby atau sesi trivia aktif di channel ini. Selesaikan dulu ya.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const questionCount = Math.max(
+    1,
+    dependencies.questionCount ?? DEFAULT_SESSION_QUESTION_COUNT,
+  );
+  const lobby: TriviaLobby = {
+    channelKey,
+    guildId: interaction.guildId,
+    channelId: interaction.channelId,
+    hostUserId: interaction.user.id,
+    questionCount,
+    players: new Set([interaction.user.id]),
+    timeout: null,
+    message: null,
+  };
+
+  triviaLobbies.set(channelKey, lobby);
+  armTriviaLobbyTimeout(lobby);
+
+  await interaction.reply({
+    embeds: [createTriviaLobbyEmbed(lobby)],
+    components: createTriviaLobbyComponents(channelKey),
+  });
+  lobby.message = await interaction.fetchReply().catch(() => null) as TriviaLobby["message"];
 }
 
 export async function executeReset(
@@ -599,6 +745,77 @@ export async function executeReset(
       ephemeral: true,
     });
   }
+}
+
+export async function handleTriviaComponentInteraction(
+  interaction: ButtonInteraction,
+  context: CommandContext,
+  dependencies: TriviaRuntimeDependencies = {},
+): Promise<boolean> {
+  const parsed = parseTriviaLobbyId(interaction.customId);
+  if (!parsed) return false;
+  if (!interaction.isButton()) return true;
+
+  const lobby = triviaLobbies.get(parsed.channelKey);
+  if (!lobby) {
+    await interaction.reply({ content: "Lobby trivia sudah tidak tersedia.", ephemeral: true });
+    return true;
+  }
+
+  if (parsed.action === "join") {
+    if (lobby.players.has(interaction.user.id)) {
+      await interaction.reply({ content: "Kamu sudah masuk lobby trivia.", ephemeral: true });
+      return true;
+    }
+
+    lobby.players.add(interaction.user.id);
+    await interaction.deferUpdate();
+    await interaction.editReply({
+      embeds: [createTriviaLobbyEmbed(lobby)],
+      components: createTriviaLobbyComponents(lobby.channelKey),
+    }).catch(() => undefined);
+    await interaction.followUp({ content: "Kamu masuk lobby trivia.", ephemeral: true });
+    return true;
+  }
+
+  if (interaction.user.id !== lobby.hostUserId) {
+    await interaction.reply({ content: "Tombol ini cuma bisa dipakai host trivia.", ephemeral: true });
+    return true;
+  }
+
+  if (parsed.action === "cancel") {
+    clearTriviaLobby(lobby);
+    await interaction.deferUpdate();
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xed4245)
+          .setTitle("Trivia Dibatalkan")
+          .setDescription("Lobby trivia dibubarkan. Channel sudah bebas untuk game baru."),
+      ],
+      components: [],
+    }).catch(() => undefined);
+    return true;
+  }
+
+  clearTriviaLobby(lobby);
+  await interaction.deferUpdate();
+  await executeTrivia(
+    {
+      guildId: lobby.guildId,
+      channelId: lobby.channelId,
+      user: interaction.user,
+      deferReply: async () => undefined,
+      editReply: (payload: unknown) => interaction.editReply(payload as never),
+      fetchReply: () => interaction.fetchReply(),
+    } as never,
+    context,
+    {
+      ...dependencies,
+      questionCount: dependencies.questionCount ?? lobby.questionCount,
+    },
+  );
+  return true;
 }
 
 export async function executeTrivia(
@@ -797,4 +1014,8 @@ export async function executeTrivia(
 
 export function resetTriviaRuntimeStateForTest(): void {
   activeTriviaChannels.clear();
+  for (const lobby of triviaLobbies.values()) {
+    if (lobby.timeout) clearTimeout(lobby.timeout);
+  }
+  triviaLobbies.clear();
 }
