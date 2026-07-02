@@ -78,6 +78,15 @@ export const IMAGE_MAX_SIZE_MB = Number.parseInt(
   10,
 );
 export const IMAGE_ANALYSIS_ENABLED = process.env.IMAGE_ANALYSIS_ENABLED !== 'false';
+export const SAUCENAO_API_KEY = process.env.SAUCENAO_API_KEY ?? '';
+export const SOURCE_ID_ENABLED = process.env.SOURCE_ID_ENABLED !== 'false';
+export const SOURCE_ID_CONFIDENCE_THRESHOLD = Number.parseFloat(
+  process.env.SOURCE_ID_CONFIDENCE_THRESHOLD ?? '60',
+);
+export const SOURCE_ID_TIMEOUT_MS = Number.parseInt(
+  process.env.SOURCE_ID_TIMEOUT_MS ?? '8000',
+  10,
+);
 export const MENTION_CONTEXT_LOOKBACK = Number.parseInt(
   process.env.MENTION_CONTEXT_LOOKBACK ?? '5',
   10,

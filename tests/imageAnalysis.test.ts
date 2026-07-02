@@ -82,6 +82,120 @@ test('image chat is routed as a vision request', async () => {
   assert.equal(request.taskType, TaskType.VISION);
 });
 
+test('image identification intent injects a clean grounding hint into the prompt', async () => {
+  db.prepare('DELETE FROM user_memories WHERE user_id = ?').run('image-source-user');
+  const sourceIdentification =
+    require('../src/services/tools/implementations/sourceIdentification') as typeof import('../src/services/tools/implementations/sourceIdentification');
+  const originalGenerate = providerManager.generate.bind(providerManager);
+  const originalIdentifySource = sourceIdentification.identifySource;
+  const capturedRequests: ChatRequest[] = [];
+  let identifyCalls = 0;
+
+  sourceIdentification.identifySource = async () => {
+    identifyCalls += 1;
+    return {
+      available: true,
+      match: {
+        title: 'Episode 7',
+        source: 'Example Anime',
+        similarity: 86.42,
+      },
+    };
+  };
+  providerManager.generate = async (request: ChatRequest): Promise<ChatResponse> => {
+    capturedRequests.push(request);
+    return { replyText: 'gambar terlihat jelas', providerUsed: AIProviderName.GEMINI };
+  };
+
+  try {
+    await chat({
+      userId: 'image-source-user',
+      guildId: 'image-guild',
+      channelId: 'image-channel',
+      promptText: 'ini karakter siapa?',
+      hasImage: true,
+      imageUrl: 'https://cdn.discordapp.com/image.png',
+    });
+  } finally {
+    sourceIdentification.identifySource = originalIdentifySource;
+    providerManager.generate = originalGenerate;
+  }
+
+  assert.equal(identifyCalls, 1);
+  assert.equal(capturedRequests.length, 1);
+  assert.match(capturedRequests[0].finalPrompt, /Petunjuk identifikasi/i);
+  assert.match(capturedRequests[0].finalPrompt, /86\.42%/);
+  assert.match(capturedRequests[0].finalPrompt, /Episode 7/);
+  assert.match(capturedRequests[0].finalPrompt, /Example Anime/);
+  assert.doesNotMatch(capturedRequests[0].finalPrompt, /https?:\/\//i);
+});
+
+test('image identification intent with no confident match leaves prompt unchanged', async () => {
+  db.prepare('DELETE FROM user_memories WHERE user_id = ?').run('image-no-source-user');
+  const sourceIdentification =
+    require('../src/services/tools/implementations/sourceIdentification') as typeof import('../src/services/tools/implementations/sourceIdentification');
+  const originalGenerate = providerManager.generate.bind(providerManager);
+  const originalIdentifySource = sourceIdentification.identifySource;
+  const capturedRequests: ChatRequest[] = [];
+
+  sourceIdentification.identifySource = async () => ({ available: false });
+  providerManager.generate = async (request: ChatRequest): Promise<ChatResponse> => {
+    capturedRequests.push(request);
+    return { replyText: 'gambar terlihat jelas', providerUsed: AIProviderName.GEMINI };
+  };
+
+  try {
+    await chat({
+      userId: 'image-no-source-user',
+      guildId: 'image-guild',
+      channelId: 'image-channel',
+      promptText: 'identify this image',
+      hasImage: true,
+      imageUrl: 'https://cdn.discordapp.com/image.png',
+    });
+  } finally {
+    sourceIdentification.identifySource = originalIdentifySource;
+    providerManager.generate = originalGenerate;
+  }
+
+  assert.equal(capturedRequests.length, 1);
+  assert.equal(capturedRequests[0].finalPrompt, 'identify this image');
+});
+
+test('image without identification intent does not call source identification', async () => {
+  db.prepare('DELETE FROM user_memories WHERE user_id = ?').run('image-no-intent-user');
+  const sourceIdentification =
+    require('../src/services/tools/implementations/sourceIdentification') as typeof import('../src/services/tools/implementations/sourceIdentification');
+  const originalGenerate = providerManager.generate.bind(providerManager);
+  const originalIdentifySource = sourceIdentification.identifySource;
+  let identifyCalls = 0;
+
+  sourceIdentification.identifySource = async () => {
+    identifyCalls += 1;
+    return { available: false };
+  };
+  providerManager.generate = async (): Promise<ChatResponse> => ({
+    replyText: 'gambar terlihat jelas',
+    providerUsed: AIProviderName.GEMINI,
+  });
+
+  try {
+    await chat({
+      userId: 'image-no-intent-user',
+      guildId: 'image-guild',
+      channelId: 'image-channel',
+      promptText: 'jelaskan warna dan komposisi gambar ini',
+      hasImage: true,
+      imageUrl: 'https://cdn.discordapp.com/image.png',
+    });
+  } finally {
+    sourceIdentification.identifySource = originalIdentifySource;
+    providerManager.generate = originalGenerate;
+  }
+
+  assert.equal(identifyCalls, 0);
+});
+
 test('oversized image attachments are rejected gracefully', () => {
   const rejection = getImageAttachmentRejection({
     contentType: 'image/png',
