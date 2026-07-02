@@ -11,7 +11,6 @@ import * as feedbackCmd from './src/commands/feedback';
 import * as drawCmd from './src/commands/draw';
 import * as switchCmd from './src/commands/switch';
 import * as analyzeCmd from './src/commands/analyze';
-import * as statsCmd from './src/commands/stats';
 import * as healthCmd from './src/commands/health';
 import * as debugAiCmd from './src/commands/debugAi';
 import * as aiProviderCmd from './src/commands/aiProvider';
@@ -37,7 +36,6 @@ const commands: Command[] = [
   drawCmd,
   switchCmd,
   analyzeCmd,
-  statsCmd,
   healthCmd,
   debugAiCmd,
   aiProviderCmd,

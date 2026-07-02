@@ -14,6 +14,12 @@ import {
   formatRelativeTime,
   truncateError,
 } from '../src/services/ai/healthFormatter';
+import {
+  recordFallback,
+  recordSuccess,
+  resetProviderMetrics,
+} from '../src/services/ai/providerMetrics';
+import { AIProviderName } from '../src/services/ai/types';
 
 const NOW = 1_800_000;
 
@@ -23,7 +29,10 @@ function transientError(message: string): Error {
 
 test('formats healthy provider state with score and latency', () => {
   resetHealth();
+  resetProviderMetrics();
   recordHealthSuccess('gemini', 720);
+  recordSuccess(AIProviderName.GEMINI, 720);
+  recordFallback(AIProviderName.GEMINI);
 
   const output = formatAIHealthDashboard({
     now: NOW,
@@ -40,6 +49,8 @@ test('formats healthy provider state with score and latency', () => {
   assert.match(output, /Success Rate: 100%/);
   assert.match(output, /Average Latency: 720ms/);
   assert.match(output, /Last Latency: 720ms/);
+  assert.match(output, /Last Used: Just now/);
+  assert.match(output, /Fallback Count: 1/);
   assert.match(output, /Last Success: Just now/);
 });
 

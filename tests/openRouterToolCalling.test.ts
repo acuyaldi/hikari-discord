@@ -48,6 +48,92 @@ test.afterEach(() => {
   clearRegisteredTools();
 });
 
+test('OpenRouterProvider builds a multimodal vision request with the dedicated vision model', async () => {
+  const downloadImage = require('../src/utils/downloadImage') as typeof import('../src/utils/downloadImage');
+  const originalDownload = downloadImage.downloadDiscordImage;
+  const calls: Array<{ model: string; messages: unknown[] }> = [];
+  downloadImage.downloadDiscordImage = async () => ({
+    data: 'base64-image',
+    mimeType: 'image/png',
+  });
+
+  const provider = new OpenRouterProvider({
+    apiKey: 'test-key',
+    models: ['text-model'],
+    visionModel: 'vision-model',
+    client: {
+      chat: {
+        completions: {
+          create: async (params) => {
+            calls.push({ model: params.model, messages: params.messages });
+            return {
+              choices: [{ message: { content: 'vision answer' } }],
+            };
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const response = await provider.generate({
+      ...request([]),
+      finalPrompt: 'Persona prompt\n\nPetunjuk identifikasi: Example Anime',
+      dynamicSystemInstruction: 'Hikari persona context',
+      hasImage: true,
+      imageUrl: 'https://cdn.discordapp.com/image.png',
+      taskType: TaskType.VISION,
+    });
+
+    assert.equal(response.replyText, 'vision answer');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].model, 'vision-model');
+    assert.deepEqual(calls[0].messages, [
+      { role: 'system', content: 'Hikari persona context' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Persona prompt\n\nPetunjuk identifikasi: Example Anime' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,base64-image' } },
+        ],
+      },
+    ]);
+  } finally {
+    downloadImage.downloadDiscordImage = originalDownload;
+  }
+});
+
+test('OpenRouterProvider keeps text-only requests on the configured text model shape', async () => {
+  const calls: Array<{ model: string; messages: unknown[] }> = [];
+  const provider = new OpenRouterProvider({
+    apiKey: 'test-key',
+    models: ['text-model'],
+    visionModel: 'vision-model',
+    client: {
+      chat: {
+        completions: {
+          create: async (params) => {
+            calls.push({ model: params.model, messages: params.messages });
+            return {
+              choices: [{ message: { content: 'text answer' } }],
+            };
+          },
+        },
+      },
+    },
+  });
+
+  const response = await provider.generate(request([]));
+
+  assert.equal(response.replyText, 'text answer');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].model, 'text-model');
+  assert.deepEqual(calls[0].messages, [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'berapa 2 + 2?' },
+  ]);
+});
+
 test('OpenRouterProvider runs a calculator tool call and returns the final answer', async () => {
   clearRegisteredTools();
   registerTool(calculateTool);

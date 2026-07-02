@@ -13,6 +13,7 @@ export const OPENROUTER_MODELS: string[] = (
   .split(',')
   .map((m) => m.trim())
   .filter((m) => m.length > 0);
+export const OPENROUTER_VISION_MODEL = process.env.OPENROUTER_VISION_MODEL ?? 'google/gemma-3-27b-it:free';
 export const HUGGINGFACE_MODELS: string[] = (
   process.env.HUGGINGFACE_MODELS ??
   'meta-llama/Llama-3.1-8B-Instruct,Qwen/Qwen2.5-7B-Instruct,google/gemma-2-9b-it'

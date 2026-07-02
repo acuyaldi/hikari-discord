@@ -11,6 +11,10 @@ import {
 import { AIProviderName, TaskType } from '../src/services/ai/types';
 import type { AIProvider, ChatRequest } from '../src/services/ai/types';
 import { rankTargets, scoreHealth } from '../src/services/ai/providerRanking';
+import {
+  getProviderMetricsSnapshot,
+  resetProviderMetrics,
+} from '../src/services/ai/providerMetrics';
 
 function request(taskType = TaskType.GENERAL): ChatRequest {
   return {
@@ -184,6 +188,44 @@ test('ProviderManager honors per-request preferred provider order', async () => 
 
   assert.equal(response.providerUsed, AIProviderName.OPENROUTER);
   assert.deepEqual(calls, [AIProviderName.GEMINI, AIProviderName.OPENROUTER]);
+});
+
+test('ProviderManager records fallback count when moving to the next provider', async () => {
+  resetHealth();
+  resetProviderMetrics();
+
+  const { ProviderManager } = await import('../src/services/ai/providerManager');
+  const breaker = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 300_000 });
+
+  const groq: AIProvider = {
+    name: AIProviderName.GROQ,
+    supportsVision: false,
+    supportsReasoning: false,
+    supportsCoding: true,
+    generate: async () => {
+      throw transientError(503);
+    },
+  };
+  const gemini: AIProvider = {
+    name: AIProviderName.GEMINI,
+    supportsVision: true,
+    supportsReasoning: true,
+    supportsCoding: true,
+    generate: async () => ({ replyText: 'gemini', providerUsed: AIProviderName.GEMINI }),
+  };
+
+  const manager = new ProviderManager({ circuitBreaker: breaker });
+  manager.registerProvider(groq);
+  manager.registerProvider(gemini);
+
+  const response = await manager.generate({
+    ...request(TaskType.GENERAL),
+    preferredProviders: [AIProviderName.GROQ, AIProviderName.GEMINI],
+  });
+
+  const groqStats = getProviderMetricsSnapshot().providers.find((stat) => stat.name === AIProviderName.GROQ);
+  assert.equal(response.providerUsed, AIProviderName.GEMINI);
+  assert.equal(groqStats?.fallbackCount, 1);
 });
 
 test('OpenRouterProvider ranks models before trying them', async () => {

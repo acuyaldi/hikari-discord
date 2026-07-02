@@ -2,6 +2,8 @@ import { DEBUG_AI, OPENROUTER_MODELS } from '../../config/env';
 import { circuitBreaker } from './circuitBreaker';
 import { getHealth } from './healthCache';
 import type { ProviderHealthState, ProviderHealthStatus } from './healthCache';
+import { getProviderMetricsSnapshot } from './providerMetrics';
+import type { MetricSnapshot, ProviderMetricsSnapshot } from './providerMetrics';
 import { scoreHealth } from './providerRanking';
 
 const PROVIDERS = ['gemini', 'groq', 'openrouter'] as const;
@@ -12,6 +14,7 @@ interface HealthDashboardOptions {
   now?: number;
   providers?: string[];
   openRouterModels?: string[];
+  metrics?: ProviderMetricsSnapshot;
 }
 
 function titleCase(value: string): string {
@@ -37,6 +40,10 @@ function formatLatency(value: number | null): string {
   return value === null ? '-' : `${value}ms`;
 }
 
+function fallbackCount(value: number | null | undefined): string {
+  return value === null || value === undefined ? '-' : String(value);
+}
+
 export function truncateError(value: string | null): string {
   if (value === null || value.length === 0) return '-';
   if (value.length <= MAX_ERROR_LENGTH) return value;
@@ -56,7 +63,7 @@ function runtimeHealth(target: string): ProviderHealthState {
   };
 }
 
-function formatProviderDetails(target: string, now: number): string[] {
+function formatProviderDetails(target: string, now: number, metric?: MetricSnapshot): string[] {
   const health = runtimeHealth(target);
   return [
     `${displayName(target)}`,
@@ -67,6 +74,8 @@ function formatProviderDetails(target: string, now: number): string[] {
     `Success Rate: ${successRate(health)}`,
     `Average Latency: ${formatLatency(health.averageLatencyMs)}`,
     `Last Latency: ${formatLatency(health.lastLatencyMs)}`,
+    `Last Used: ${formatRelativeTime(metric?.lastUsedAt ?? null, now)}`,
+    `Fallback Count: ${fallbackCount(metric?.fallbackCount)}`,
     `Consecutive Failures: ${health.consecutiveFailures}`,
     `Cooldown Remaining: ${formatCooldown(health.cooldownUntil, now)}`,
     `Last Success: ${formatRelativeTime(health.lastSuccessAt, now)}`,
@@ -75,7 +84,13 @@ function formatProviderDetails(target: string, now: number): string[] {
   ];
 }
 
-function formatModelDetails(model: string, index: number, total: number, now: number): string[] {
+function formatModelDetails(
+  model: string,
+  index: number,
+  total: number,
+  now: number,
+  metric?: MetricSnapshot,
+): string[] {
   const target = `openrouter:${model}`;
   const health = runtimeHealth(target);
   const branch = index === total - 1 ? '└──' : '├──';
@@ -86,6 +101,7 @@ function formatModelDetails(model: string, index: number, total: number, now: nu
     `${detailPrefix}Status: ${formatStatus(health.status)}`,
     `${detailPrefix}Score: ${Math.round(scoreHealth(target))}`,
     `${detailPrefix}Latency: ${formatLatency(health.lastLatencyMs)}`,
+    `${detailPrefix}Last Used: ${formatRelativeTime(metric?.lastUsedAt ?? null, now)}`,
     `${detailPrefix}Success: ${health.successCount}`,
     `${detailPrefix}Failure: ${health.failureCount}`,
     `${detailPrefix}Consecutive Failures: ${health.consecutiveFailures}`,
@@ -140,6 +156,7 @@ export function formatHealthDashboard(options: HealthDashboardOptions = {}): str
   const now = options.now ?? Date.now();
   const providers = options.providers ?? [...PROVIDERS];
   const openRouterModels = options.openRouterModels ?? OPENROUTER_MODELS;
+  const metrics = options.metrics ?? getProviderMetricsSnapshot();
 
   const lines = ['**AI Provider Health**', '====================', ''];
 
@@ -148,12 +165,14 @@ export function formatHealthDashboard(options: HealthDashboardOptions = {}): str
   }
 
   for (const provider of providers) {
-    lines.push(...formatProviderDetails(provider, now));
+    const providerMetric = metrics.providers.find((metric) => metric.name === provider);
+    lines.push(...formatProviderDetails(provider, now, providerMetric));
 
     if (provider === 'openrouter' && openRouterModels.length > 0) {
       lines.push('');
       openRouterModels.forEach((model, index) => {
-        lines.push(...formatModelDetails(model, index, openRouterModels.length, now));
+        const modelMetric = metrics.openRouterModels.find((metric) => metric.name === model);
+        lines.push(...formatModelDetails(model, index, openRouterModels.length, now, modelMetric));
         if (index < openRouterModels.length - 1) lines.push('│');
       });
     }
