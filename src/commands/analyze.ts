@@ -4,6 +4,7 @@ import { PDFParse } from 'pdf-parse';
 import { splitMessage } from '../utils/splitmessage';
 import { baseSystemInstruction } from '../prompt/basePrompt';
 import { deepAnalysisInstruction } from '../prompt/deepPrompt';
+import { discordOutputFormattingInstruction } from '../prompt/discordFormatting';
 import { providerManager } from '../services/ai/providerManager';
 import { circuitBreaker } from '../services/ai/circuitBreaker';
 import { AIProviderName, TaskType } from '../services/ai/types';
@@ -175,6 +176,7 @@ export async function execute(
     const dynamicSystemInstruction =
       baseSystemInstruction +
       (userRow?.feedback_notes ? `\n[ATURAN DARI USER YANG WAJIB DIPATUHI: ${userRow.feedback_notes}]` : '');
+    const analyzeSystemInstruction = `${dynamicSystemInstruction}\n\n${discordOutputFormattingInstruction}`;
 
     const boundedContentToAnalyze = boundAnalysisSource(finalContentToAnalyze, customInstruction);
     const analysisPrompt = `${boundedContentToAnalyze}\n\n[PERINTAH USER]: ${customInstruction}`;
@@ -190,7 +192,7 @@ export async function execute(
           console.log('[Analyze] using deep analysis mode with Groq GPT-OSS 120B');
           const groqResponse = await groq.chat.completions.create({
             messages: [
-              { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
+              { role: 'system', content: `${analyzeSystemInstruction}\n\n${deepAnalysisInstruction}` },
               { role: 'user', content: analysisPrompt },
             ],
             model: 'openai/gpt-oss-120b',
@@ -214,7 +216,7 @@ export async function execute(
           promptText: analysisPrompt,
           identityPrefix: '',
           finalPrompt: analysisPrompt,
-          dynamicSystemInstruction: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}`,
+          dynamicSystemInstruction: `${analyzeSystemInstruction}\n\n${deepAnalysisInstruction}`,
           hasImage: false,
           taskType: TaskType.GENERAL,
           preferredProviders: [
@@ -236,7 +238,7 @@ export async function execute(
         promptText: analysisPrompt,
         identityPrefix: '',
         finalPrompt: analysisPrompt,
-        dynamicSystemInstruction,
+        dynamicSystemInstruction: analyzeSystemInstruction,
         hasImage: false,
         taskType: TaskType.GENERAL,
         preferredProviders: [

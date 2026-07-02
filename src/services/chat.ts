@@ -6,9 +6,10 @@ import { providerManager } from './ai/providerManager';
 import { trimHistoryForContext } from './context/adaptiveHistory';
 import { buildFinalContext } from './context/contextBuilder';
 import { getSummary } from './summary/summaryService';
-import { DEBUG_MEMORY, DEBUG_SUMMARY, TOOL_CALLING_ENABLED } from '../config/env';
+import { DEBUG_MEMORY, DEBUG_SUMMARY, SOURCE_ID_ENABLED, TOOL_CALLING_ENABLED } from '../config/env';
 import { AIProviderName, TaskType } from './ai/types';
 import { getRegisteredTools } from './tools/toolRegistry';
+import * as sourceIdentification from './tools/implementations/sourceIdentification';
 import type { ChatRequest } from './ai/types';
 import type { ChatMessage } from './context/contextBuilder';
 import type { UserRow } from '../types';
@@ -48,6 +49,18 @@ function preferredProvidersForEngine(
     default:
       return undefined;
   }
+}
+
+function formatIdentificationHint(match: sourceIdentification.IdentificationMatch): string {
+  const sourceText = match.title === match.source
+    ? match.title
+    : `${match.title} / ${match.source}`;
+
+  return [
+    '[PETUNJUK IDENTIFIKASI GAMBAR]',
+    `Petunjuk identifikasi (tingkat kecocokan ${match.similarity}%): kemungkinan ini dari ${sourceText}.`,
+    'Gunakan ini sebagai referensi, tapi tetap jelaskan berdasarkan apa yang terlihat di gambar.',
+  ].join('\n');
 }
 
 export interface ChatOptions {
@@ -131,7 +144,7 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
     recentMessages,
     currentUserMessage: injectIdentity + (options.currentUserMessage ?? promptText),
   });
-  const finalPrompt = finalContext.finalPrompt;
+  let finalPrompt = finalContext.finalPrompt;
   const dynamicSystemInstruction = finalContext.dynamicSystemInstruction;
   let replyText = '';
   let engineIndicator = '';
@@ -143,6 +156,13 @@ export async function chat(options: ChatOptions): Promise<ChatResult> {
       ? classifyTask(promptText)
       : TaskType.GENERAL;
   console.log(`🤖 Hikari mengklasifikasi tugas: ${taskType.toUpperCase()}`);
+
+  if (SOURCE_ID_ENABLED && hasImage && imageUrl && sourceIdentification.detectIdentificationIntent(promptText)) {
+    const identification = await sourceIdentification.identifySource(imageUrl);
+    if (identification.available && identification.match) {
+      finalPrompt = `${finalPrompt}\n\n${formatIdentificationHint(identification.match)}`;
+    }
+  }
 
   const chatRequest: ChatRequest = {
     userId,
