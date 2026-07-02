@@ -19,6 +19,8 @@ import type { WerewolfPhase, WerewolfPlayerRow, WerewolfRole, WerewolfVictory } 
 export const WEREWOLF_MIN_PLAYERS = 4;
 export const WEREWOLF_DAY_DISCUSSION_MS = 60_000;
 export const WEREWOLF_VOTE_MS = 60_000;
+export const WEREWOLF_REGISTRATION_TIMEOUT_MS = 10 * 60_000;
+export const WEREWOLF_NIGHT_ACTION_MS = 60_000;
 
 function roleEmoji(role: WerewolfRole): string {
   switch (role) {
@@ -82,6 +84,16 @@ export function createRegistrationEmbed(input: {
       value: mentionList(input.playerIds),
     })
     .setFooter({ text: 'Santai. Bohongnya nanti aja pas game mulai.' });
+}
+
+export function createLobbyExpiredEmbed(): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0x99aab5)
+    .setTitle('🐺 Werewolf Lobby Ditutup')
+    .setDescription(
+      `Tidak ada yang menekan **Start Game** dalam ${Math.round(WEREWOLF_REGISTRATION_TIMEOUT_MS / 60_000)} menit, jadi lobby ini otomatis dibubarkan. Buka lobby baru kalau mau main lagi.`,
+    )
+    .setFooter({ text: 'Auto-cleanup supaya lobby zombie nggak nyangkut selamanya.' });
 }
 
 export function createRegistrationComponents(guildId: string): ActionRowBuilder<ButtonBuilder>[] {
