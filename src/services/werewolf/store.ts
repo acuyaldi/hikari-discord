@@ -72,6 +72,13 @@ export function setWerewolfPhase(
   );
 }
 
+export function claimWerewolfLaunch(db: Database.Database, guildId: string, now = Date.now()): boolean {
+  const result = db.prepare(
+    'UPDATE ww_games SET phase = ?, phase_started_at = ?, updated_at = ? WHERE guild_id = ? AND phase = ?',
+  ).run('launching', now, now, guildId, 'registration');
+  return result.changes === 1;
+}
+
 export function joinWerewolfGame(
   db: Database.Database,
   input: { guildId: string; userId: string; now?: number },

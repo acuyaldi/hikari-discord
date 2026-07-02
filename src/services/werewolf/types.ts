@@ -1,4 +1,4 @@
-export type WerewolfPhase = 'registration' | 'night' | 'day' | 'voting';
+export type WerewolfPhase = 'registration' | 'launching' | 'night' | 'day' | 'voting';
 
 export type WerewolfRole = 'villager' | 'werewolf' | 'seer';
 

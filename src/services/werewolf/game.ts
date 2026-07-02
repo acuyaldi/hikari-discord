@@ -14,6 +14,7 @@ import {
 import type Database from 'better-sqlite3';
 import {
   assignWerewolfRoles,
+  claimWerewolfLaunch,
   clearWerewolfNightTargets,
   clearWerewolfVotes,
   createWerewolfGame,
@@ -45,10 +46,11 @@ import {
   WEREWOLF_MIN_PLAYERS,
   WEREWOLF_VOTE_MS,
 } from './ui';
-import type { WerewolfGameRow, WerewolfPlayerRow, WerewolfRole } from './types';
+import type { WerewolfGameRow, WerewolfPlayerRow, WerewolfRole, WerewolfRoleAssignment } from './types';
 
 const dayTimers = new Map<string, NodeJS.Timeout>();
 const voteTimers = new Map<string, NodeJS.Timeout>();
+const pendingLaunches = new Map<string, { assignments: WerewolfRoleAssignment[]; sentUserIds: Set<string> }>();
 
 function clearGuildTimers(guildId: string): void {
   const dayTimer = dayTimers.get(guildId);
@@ -62,6 +64,10 @@ function clearGuildTimers(guildId: string): void {
     clearTimeout(voteTimer);
     voteTimers.delete(guildId);
   }
+}
+
+function clearPendingLaunch(guildId: string): void {
+  pendingLaunches.delete(guildId);
 }
 
 function isTextChannel(channel: GuildBasedChannel | null): channel is GuildBasedChannel & TextBasedChannel {
@@ -226,6 +232,7 @@ async function finishWerewolfGame(client: Client, db: Database.Database, guildId
     await setChannelNightLock(client, game, false);
   }
   clearGuildTimers(guildId);
+  clearPendingLaunch(guildId);
   await updateMainGameMessage(client, db, guildId, {
     embeds: [createGameOverEmbed(winner, players)],
     components: [],
@@ -299,7 +306,13 @@ async function startDayPhase(
   dayTimers.set(guildId, timer);
 }
 
-async function startNightPhase(client: Client, db: Database.Database, guildId: string, note?: string): Promise<void> {
+async function startNightPhase(
+  client: Client,
+  db: Database.Database,
+  guildId: string,
+  note?: string,
+  options: { sendPrompts?: boolean } = {},
+): Promise<void> {
   const game = getWerewolfGame(db, guildId);
   if (!game) return;
   clearGuildTimers(guildId);
@@ -318,7 +331,9 @@ async function startNightPhase(client: Client, db: Database.Database, guildId: s
     components: [],
   });
 
-  await sendNightPrompts(client, db, guildId);
+  if (options.sendPrompts !== false) {
+    await sendNightPrompts(client, db, guildId);
+  }
 }
 
 async function resolveNightPhase(client: Client, db: Database.Database, guildId: string): Promise<void> {
@@ -383,6 +398,7 @@ export async function startWerewolfRegistration(
     components: createRegistrationComponents(guildId),
     fetchReply: true,
   });
+  clearPendingLaunch(guildId);
   const reply = await interaction.fetchReply();
   createWerewolfGame(db, {
     guildId,
@@ -467,11 +483,29 @@ async function handleLaunch(interaction: ButtonInteraction, db: Database.Databas
     return;
   }
 
-  const assignments = assignRoles(players.map((player) => player.user_id));
-  const roleMap = new Map(assignments.map((assignment) => [assignment.userId, assignment.role] as const));
-  const dmResult = await sendRoleAndNightPrompt(interaction.client, db, guildId, players, roleMap);
+  if (!claimWerewolfLaunch(db, guildId)) {
+    await interaction.reply({ content: 'Game ini sudah jalan atau lobby-nya sudah tidak aktif.', ephemeral: true });
+    return;
+  }
+
+  const pending = pendingLaunches.get(guildId) ?? {
+    assignments: assignRoles(players.map((player) => player.user_id)),
+    sentUserIds: new Set<string>(),
+  };
+  pendingLaunches.set(guildId, pending);
+
+  const roleMap = new Map(pending.assignments.map((assignment) => [assignment.userId, assignment.role] as const));
+  const playersToNotify = players.filter((player) => !pending.sentUserIds.has(player.user_id));
+  const dmResult = await sendRoleAndNightPrompt(interaction.client, db, guildId, playersToNotify, roleMap);
+
+  for (const player of playersToNotify) {
+    if (!dmResult.failedUsers.includes(player.user_id)) {
+      pending.sentUserIds.add(player.user_id);
+    }
+  }
 
   if (dmResult.failedUsers.length > 0) {
+    setWerewolfPhase(db, guildId, 'registration');
     await interaction.reply({
       content: `Game belum bisa dimulai. DM tertutup untuk: ${dmResult.failedUsers.map((userId) => `<@${userId}>`).join(', ')}`,
       ephemeral: true,
@@ -481,9 +515,10 @@ async function handleLaunch(interaction: ButtonInteraction, db: Database.Databas
     return;
   }
 
-  assignWerewolfRoles(db, guildId, assignments);
+  clearPendingLaunch(guildId);
+  assignWerewolfRoles(db, guildId, pending.assignments);
   await interaction.deferUpdate();
-  await startNightPhase(interaction.client, db, guildId);
+  await startNightPhase(interaction.client, db, guildId, undefined, { sendPrompts: false });
 }
 
 async function handleNightActionButton(

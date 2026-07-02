@@ -46,6 +46,8 @@ function phaseEmoji(phase: WerewolfPhase): string {
   switch (phase) {
     case 'registration':
       return '📝';
+    case 'launching':
+      return 'â³';
     case 'night':
       return '🌙';
     case 'day':

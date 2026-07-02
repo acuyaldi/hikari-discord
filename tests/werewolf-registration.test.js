@@ -50,7 +50,7 @@ function createWerewolfSchema(db) {
 }
 
 function createMockClient(options = {}) {
-  const dmFailures = new Set(options.dmFailures ?? []);
+  const dmFailures = options.dmFailures instanceof Set ? options.dmFailures : new Set(options.dmFailures ?? []);
   const mainMessage = {
     id: options.mainMessageId ?? 'main-message-1',
     edit: jest.fn(async () => undefined),
@@ -114,7 +114,7 @@ function createMockClient(options = {}) {
     },
   };
 
-  return { client, channel, mainMessage, dmSend };
+  return { client, channel, mainMessage, dmSend, dmFailures };
 }
 
 function createStartInteraction(options = {}) {
@@ -389,6 +389,85 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       expect(roles).toContain('werewolf');
 
       expect(client.users.fetch).toHaveBeenCalled();
+    });
+
+    test('concurrent launch clicks send only one role DM per player', async () => {
+      const { client, dmSend } = createMockClient();
+      await startGameAndSeedHost(db, client);
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-2' });
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-3' });
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-4' });
+
+      const firstLaunchInteraction = createButtonInteraction({
+        customId: buildWerewolfLaunchId('guild-1'),
+        userId: 'host-1',
+        client,
+      });
+      const secondLaunchInteraction = createButtonInteraction({
+        customId: buildWerewolfLaunchId('guild-1'),
+        userId: 'host-1',
+        client,
+      });
+
+      await Promise.all([
+        handleWerewolfComponentInteraction(firstLaunchInteraction, db),
+        handleWerewolfComponentInteraction(secondLaunchInteraction, db),
+      ]);
+
+      expect(dmSend).toHaveBeenCalledTimes(4);
+      expect(
+        firstLaunchInteraction.deferUpdate.mock.calls.length
+        + secondLaunchInteraction.deferUpdate.mock.calls.length,
+      ).toBe(1);
+    });
+
+    test('retrying launch after a closed DM does not resend duplicate role DMs to already-notified players', async () => {
+      const { client, dmSend, dmFailures } = createMockClient({ dmFailures: ['user-4'] });
+      await startGameAndSeedHost(db, client);
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-2' });
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-3' });
+      joinWerewolfGame(db, { guildId: 'guild-1', userId: 'user-4' });
+
+      const firstLaunchInteraction = createButtonInteraction({
+        customId: buildWerewolfLaunchId('guild-1'),
+        userId: 'host-1',
+        client,
+      });
+
+      await handleWerewolfComponentInteraction(firstLaunchInteraction, db);
+
+      expect(dmSend).toHaveBeenCalledTimes(3);
+      expect(firstLaunchInteraction.reply).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringMatching(/DM tertutup/i) }),
+      );
+
+      let gameAfterFailure = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(gameAfterFailure.phase).toBe('registration');
+
+      dmFailures.delete('user-4');
+
+      const secondLaunchInteraction = createButtonInteraction({
+        customId: buildWerewolfLaunchId('guild-1'),
+        userId: 'host-1',
+        client,
+      });
+
+      await handleWerewolfComponentInteraction(secondLaunchInteraction, db);
+
+      // Only the previously-failed player (user-4) should receive a new DM on retry.
+      expect(dmSend).toHaveBeenCalledTimes(4);
+      expect(secondLaunchInteraction.deferUpdate).toHaveBeenCalledTimes(1);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game.phase).toBe('night');
+
+      const roles = db
+        .prepare('SELECT role FROM ww_players WHERE guild_id = ?')
+        .all('guild-1')
+        .map((row) => row.role);
+      expect(roles).toHaveLength(4);
+      expect(roles).toContain('seer');
+      expect(roles).toContain('werewolf');
     });
   });
 
