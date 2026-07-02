@@ -1,0 +1,60 @@
+import { SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
+
+import { SUSUNKATA_MAX_ROUNDS } from '../config/env';
+import type { CommandContext } from '../types';
+import { createRoom } from '../services/games/susunkata/roomManager';
+import {
+  createSusunKataLobbyComponents,
+  createSusunKataLobbyEmbed,
+} from '../services/games/susunkata/buttonHandlers';
+
+const DEFAULT_ROUNDS = 5;
+
+export const data = new SlashCommandBuilder()
+  .setName('susunkata')
+  .setDescription('Mainkan Susun Kata cepat-cepatan di channel ini')
+  .addIntegerOption((option) =>
+    option
+      .setName('rounds')
+      .setDescription(`Jumlah ronde (default ${DEFAULT_ROUNDS}, maksimal ${SUSUNKATA_MAX_ROUNDS})`)
+      .setRequired(false)
+      .setMinValue(1),
+  );
+
+export async function execute(
+  interaction: ChatInputCommandInteraction,
+  _context: CommandContext,
+): Promise<void> {
+  if (!interaction.guildId || !interaction.channelId) {
+    await interaction.reply({ content: 'Susun Kata cuma bisa dimainkan di server.', ephemeral: true });
+    return;
+  }
+
+  const requestedRounds = interaction.options.getInteger('rounds') ?? DEFAULT_ROUNDS;
+  const rounds = Math.max(1, Math.min(requestedRounds, SUSUNKATA_MAX_ROUNDS));
+
+  try {
+    const room = createRoom(interaction.channelId, interaction.user.id, rounds, {
+      guildId: interaction.guildId,
+    });
+
+    await interaction.reply({
+      content: requestedRounds > SUSUNKATA_MAX_ROUNDS
+        ? `Jumlah ronde dikunci ke maksimal ${SUSUNKATA_MAX_ROUNDS}.`
+        : undefined,
+      embeds: [
+        createSusunKataLobbyEmbed({
+          creatorId: room.creatorId,
+          playerIds: Array.from(room.players),
+          rounds: room.rounds,
+        }),
+      ],
+      components: createSusunKataLobbyComponents(interaction.channelId),
+    });
+  } catch {
+    await interaction.reply({
+      content: 'Masih ada room Susun Kata aktif di channel ini. Selesaikan atau batalkan dulu ya.',
+      ephemeral: true,
+    });
+  }
+}
