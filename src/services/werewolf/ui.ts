@@ -20,6 +20,7 @@ export const WEREWOLF_MIN_PLAYERS = 4;
 export const WEREWOLF_DAY_DISCUSSION_MS = 60_000;
 export const WEREWOLF_VOTE_MS = 60_000;
 export const WEREWOLF_REGISTRATION_TIMEOUT_MS = 10 * 60_000;
+export const WEREWOLF_NIGHT_ACTION_MS = 60_000;
 
 function roleEmoji(role: WerewolfRole): string {
   switch (role) {

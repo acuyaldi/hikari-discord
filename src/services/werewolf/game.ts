@@ -45,6 +45,7 @@ import {
   createVotingMenu,
   WEREWOLF_DAY_DISCUSSION_MS,
   WEREWOLF_MIN_PLAYERS,
+  WEREWOLF_NIGHT_ACTION_MS,
   WEREWOLF_REGISTRATION_TIMEOUT_MS,
   WEREWOLF_VOTE_MS,
 } from './ui';
@@ -54,6 +55,7 @@ const dayTimers = new Map<string, NodeJS.Timeout>();
 const voteTimers = new Map<string, NodeJS.Timeout>();
 const pendingLaunches = new Map<string, { assignments: WerewolfRoleAssignment[]; sentUserIds: Set<string> }>();
 const registrationTimers = new Map<string, NodeJS.Timeout>();
+const nightTimers = new Map<string, NodeJS.Timeout>();
 
 function clearGuildTimers(guildId: string): void {
   const dayTimer = dayTimers.get(guildId);
@@ -66,6 +68,12 @@ function clearGuildTimers(guildId: string): void {
   if (voteTimer) {
     clearTimeout(voteTimer);
     voteTimers.delete(guildId);
+  }
+
+  const nightTimer = nightTimers.get(guildId);
+  if (nightTimer) {
+    clearTimeout(nightTimer);
+    nightTimers.delete(guildId);
   }
 }
 
@@ -365,9 +373,18 @@ async function startNightPhase(
   if (options.sendPrompts !== false) {
     await sendNightPrompts(client, db, guildId);
   }
+
+  const timer = setTimeout(() => {
+    void resolveNightPhase(client, db, guildId);
+  }, WEREWOLF_NIGHT_ACTION_MS);
+  nightTimers.set(guildId, timer);
 }
 
 async function resolveNightPhase(client: Client, db: Database.Database, guildId: string): Promise<void> {
+  const game = getWerewolfGame(db, guildId);
+  if (!game || game.phase !== 'night') return;
+  clearGuildTimers(guildId);
+
   const players = listWerewolfPlayers(db, guildId);
   const victim = chooseNightVictim(players);
   if (victim) {

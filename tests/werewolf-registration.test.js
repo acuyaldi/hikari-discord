@@ -16,7 +16,7 @@ const {
   buildWerewolfVoteId,
 } = require('../src/services/werewolf/ids');
 const { joinWerewolfGame } = require('../src/services/werewolf/store');
-const { WEREWOLF_REGISTRATION_TIMEOUT_MS } = require('../src/services/werewolf/ui');
+const { WEREWOLF_NIGHT_ACTION_MS, WEREWOLF_REGISTRATION_TIMEOUT_MS } = require('../src/services/werewolf/ui');
 
 function createWerewolfSchema(db) {
   db.prepare(`
@@ -889,6 +889,67 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
       expect(game).toBeTruthy();
       expect(game.phase).not.toBe('registration');
+    });
+  });
+
+  describe('Scenario J: Night phase timeout', () => {
+    test('auto-resolves the night phase after the timeout even if not everyone submitted an action', async () => {
+      const { client } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_NIGHT_ACTION_MS);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game.phase).toBe('day');
+    });
+
+    test('cancels the pending night timeout once everyone has already submitted, so it does not double-announce the day phase', async () => {
+      const { client, mainMessage } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      const seer = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role = ?')
+        .get('guild-1', 'seer');
+      const wolf = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role = ?')
+        .get('guild-1', 'werewolf');
+      const seerTarget = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND user_id != ? LIMIT 1')
+        .get('guild-1', seer.user_id);
+      const wolfTarget = db
+        .prepare('SELECT user_id FROM ww_players WHERE guild_id = ? AND role != ? AND user_id != ? LIMIT 1')
+        .get('guild-1', 'werewolf', seer.user_id);
+
+      await handleWerewolfComponentInteraction(
+        createSelectInteraction({
+          customId: buildWerewolfNightTargetId('guild-1', 'inspect'),
+          userId: seer.user_id,
+          values: [seerTarget.user_id],
+          client,
+        }),
+        db,
+      );
+      await handleWerewolfComponentInteraction(
+        createSelectInteraction({
+          customId: buildWerewolfNightTargetId('guild-1', 'kill'),
+          userId: wolf.user_id,
+          values: [wolfTarget.user_id],
+          client,
+        }),
+        db,
+      );
+
+      const dayEditsBefore = mainMessage.edit.mock.calls.filter(
+        ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
+      ).length;
+      expect(dayEditsBefore).toBe(1);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_NIGHT_ACTION_MS);
+
+      const dayEditsAfter = mainMessage.edit.mock.calls.filter(
+        ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
+      ).length;
+      expect(dayEditsAfter).toBe(1);
     });
   });
 });
