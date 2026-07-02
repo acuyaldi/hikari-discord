@@ -481,3 +481,40 @@ test('trivia result shows correct answer and per-user point breakdown', async ()
   assert.match(description, /<@user-b> pilih \*\*A\*\* -> ❌ -5/);
   db.close();
 });
+
+test('trivia fallback database has valid structure and does not contain Sejarah category', () => {
+  interface RawQuestionJson {
+    id?: unknown;
+    kategori?: unknown;
+    soal?: unknown;
+    pilihan?: unknown;
+    jawaban_benar?: unknown;
+  }
+
+  const triviaQuestions = require('../trivia_questions.json') as RawQuestionJson[];
+  
+  assert.equal(triviaQuestions.length > 0, true);
+  
+  const categories = new Set<string>();
+  
+  for (const question of triviaQuestions) {
+    assert.equal(typeof question.id, 'number');
+    assert.equal(typeof question.kategori, 'string');
+    assert.equal(typeof question.soal, 'string');
+    assert.equal(Array.isArray(question.pilihan), true);
+    
+    const choices = question.pilihan as unknown[];
+    assert.equal(choices.length, 4);
+    for (const choice of choices) {
+      assert.equal(typeof choice, 'string');
+    }
+    assert.equal(['A', 'B', 'C', 'D'].includes(question.jawaban_benar as string), true);
+    
+    categories.add(question.kategori as string);
+  }
+  
+  assert.equal(categories.has('Sejarah'), false, 'Sejarah category should have been removed');
+  assert.equal(categories.has('Matematika'), true, 'Matematika category should be present');
+  assert.equal(categories.has('Geografi'), true, 'Geografi category should be present');
+});
+
