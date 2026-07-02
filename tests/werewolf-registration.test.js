@@ -16,6 +16,7 @@ const {
   buildWerewolfVoteId,
 } = require('../src/services/werewolf/ids');
 const { joinWerewolfGame } = require('../src/services/werewolf/store');
+const { WEREWOLF_REGISTRATION_TIMEOUT_MS } = require('../src/services/werewolf/ui');
 
 function createWerewolfSchema(db) {
   db.prepare(`
@@ -208,11 +209,14 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
   let db;
 
   beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['Date'] });
     db = new Database(':memory:');
     createWerewolfSchema(db);
   });
 
   afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
     db.close();
   });
 
@@ -855,6 +859,36 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
       expect(nonDefaultRoles).toBe(0);
 
       expect(channel.send).toHaveBeenCalledWith(expect.stringMatching(/belum dimulai karena DM tertutup/i));
+    });
+  });
+
+  describe('Scenario I: Stale lobby auto-cleanup', () => {
+    test('auto-cancels an abandoned lobby after the registration timeout elapses', async () => {
+      const { client, mainMessage } = createMockClient();
+      await startGameAndSeedHost(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_REGISTRATION_TIMEOUT_MS);
+
+      const game = db.prepare('SELECT * FROM ww_games WHERE guild_id = ?').get('guild-1');
+      const players = db.prepare('SELECT * FROM ww_players WHERE guild_id = ?').all('guild-1');
+      expect(game).toBeUndefined();
+      expect(players).toHaveLength(0);
+
+      const editCalls = mainMessage.edit.mock.calls;
+      const lastEditPayload = editCalls[editCalls.length - 1][0];
+      expect(lastEditPayload.embeds[0].data.title).toMatch(/lobby ditutup/i);
+      expect(lastEditPayload.components).toEqual([]);
+    });
+
+    test('does not auto-cancel the lobby once the game has successfully launched', async () => {
+      const { client } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      await jest.advanceTimersByTimeAsync(WEREWOLF_REGISTRATION_TIMEOUT_MS);
+
+      const game = db.prepare('SELECT phase FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game).toBeTruthy();
+      expect(game.phase).not.toBe('registration');
     });
   });
 });

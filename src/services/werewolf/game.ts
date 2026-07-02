@@ -35,6 +35,7 @@ import { assignRoles, evaluateWinCondition, tallyVotes } from './roles';
 import { parseWerewolfComponentId, type WerewolfNightAction } from './ids';
 import {
   createGameOverEmbed,
+  createLobbyExpiredEmbed,
   createNightActionButtonRow,
   createNightTargetMenu,
   createPhaseEmbed,
@@ -44,6 +45,7 @@ import {
   createVotingMenu,
   WEREWOLF_DAY_DISCUSSION_MS,
   WEREWOLF_MIN_PLAYERS,
+  WEREWOLF_REGISTRATION_TIMEOUT_MS,
   WEREWOLF_VOTE_MS,
 } from './ui';
 import type { WerewolfGameRow, WerewolfPlayerRow, WerewolfRole, WerewolfRoleAssignment } from './types';
@@ -51,6 +53,7 @@ import type { WerewolfGameRow, WerewolfPlayerRow, WerewolfRole, WerewolfRoleAssi
 const dayTimers = new Map<string, NodeJS.Timeout>();
 const voteTimers = new Map<string, NodeJS.Timeout>();
 const pendingLaunches = new Map<string, { assignments: WerewolfRoleAssignment[]; sentUserIds: Set<string> }>();
+const registrationTimers = new Map<string, NodeJS.Timeout>();
 
 function clearGuildTimers(guildId: string): void {
   const dayTimer = dayTimers.get(guildId);
@@ -68,6 +71,33 @@ function clearGuildTimers(guildId: string): void {
 
 function clearPendingLaunch(guildId: string): void {
   pendingLaunches.delete(guildId);
+}
+
+function clearRegistrationTimeout(guildId: string): void {
+  const timer = registrationTimers.get(guildId);
+  if (timer) {
+    clearTimeout(timer);
+    registrationTimers.delete(guildId);
+  }
+}
+
+function armRegistrationTimeout(client: Client, db: Database.Database, guildId: string): void {
+  clearRegistrationTimeout(guildId);
+  const timer = setTimeout(() => {
+    void autoCancelStaleLobby(client, db, guildId);
+  }, WEREWOLF_REGISTRATION_TIMEOUT_MS);
+  registrationTimers.set(guildId, timer);
+}
+
+async function autoCancelStaleLobby(client: Client, db: Database.Database, guildId: string): Promise<void> {
+  clearRegistrationTimeout(guildId);
+  const game = getWerewolfGame(db, guildId);
+  if (!game || game.phase !== 'registration') return;
+  await updateMainGameMessage(client, db, guildId, {
+    embeds: [createLobbyExpiredEmbed()],
+    components: [],
+  });
+  deleteWerewolfGame(db, guildId);
 }
 
 function isTextChannel(channel: GuildBasedChannel | null): channel is GuildBasedChannel & TextBasedChannel {
@@ -233,6 +263,7 @@ async function finishWerewolfGame(client: Client, db: Database.Database, guildId
   }
   clearGuildTimers(guildId);
   clearPendingLaunch(guildId);
+  clearRegistrationTimeout(guildId);
   await updateMainGameMessage(client, db, guildId, {
     embeds: [createGameOverEmbed(winner, players)],
     components: [],
@@ -407,6 +438,7 @@ export async function startWerewolfRegistration(
     messageId: reply.id,
   });
   joinWerewolfGame(db, { guildId, userId: interaction.user.id });
+  armRegistrationTimeout(interaction.client, db, guildId);
 }
 
 export async function forceWerewolfVoting(interaction: ChatInputCommandInteraction, db: Database.Database): Promise<void> {
@@ -488,6 +520,8 @@ async function handleLaunch(interaction: ButtonInteraction, db: Database.Databas
     return;
   }
 
+  clearRegistrationTimeout(guildId);
+
   const pending = pendingLaunches.get(guildId) ?? {
     assignments: assignRoles(players.map((player) => player.user_id)),
     sentUserIds: new Set<string>(),
@@ -506,6 +540,7 @@ async function handleLaunch(interaction: ButtonInteraction, db: Database.Databas
 
   if (dmResult.failedUsers.length > 0) {
     setWerewolfPhase(db, guildId, 'registration');
+    armRegistrationTimeout(interaction.client, db, guildId);
     await interaction.reply({
       content: `Game belum bisa dimulai. DM tertutup untuk: ${dmResult.failedUsers.map((userId) => `<@${userId}>`).join(', ')}`,
       ephemeral: true,
