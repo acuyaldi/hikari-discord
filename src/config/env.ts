@@ -8,7 +8,7 @@ export const SPESIFIK_CHANNEL_ID = process.env.SPESIFIK_CHANNEL_ID ?? '';
 export const OPENROUTER_API_KEY  = process.env.OPENROUTER_API_KEY  ?? '';
 export const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY ?? '';
 export const OPENROUTER_MODELS: string[] = (
-  process.env.OPENROUTER_MODELS ?? 'meta-llama/llama-3.3-8b-instruct:free,google/gemma-2-9b-it:free,mistralai/mistral-7b-instruct:free,qwen/qwen2.5-7b-instruct:free'
+  process.env.OPENROUTER_MODELS ?? 'meta-llama/llama-3.3-8b-instruct:free,google/gemma-2-9b-it:free,mistralai/mistral-7b-instruct:free,qwen/qwen-2.5-7b-instruct'
 )
   .split(',')
   .map((m) => m.trim())

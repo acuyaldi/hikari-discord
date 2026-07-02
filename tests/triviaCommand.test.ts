@@ -6,6 +6,7 @@ import {
   executeTrivia,
   generateTriviaQuestionWithRetry,
   resetTriviaRuntimeStateForTest,
+  TRIVIA_MODEL,
 } from '../src/commands/trivia';
 
 type CollectorHandlers = {
@@ -116,6 +117,10 @@ function createButton(
     },
   };
 }
+
+test('trivia primary Gemini model uses current Flash-Lite tier', () => {
+  assert.equal(TRIVIA_MODEL, 'gemini-2.5-flash-lite');
+});
 
 test('trivia awards +10 points to the first correct answer', async () => {
   resetTriviaRuntimeStateForTest();

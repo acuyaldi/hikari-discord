@@ -51,6 +51,7 @@ test.afterEach(() => {
   clearRegisteredTools();
   clearMemory('gemini-tool-channel');
   clearMemory('gemini-tool-sync-fail-channel');
+  clearMemory('gemini-search-context-channel');
   clearMemory('groq-tool-channel');
 });
 
@@ -138,6 +139,52 @@ test('GeminiProvider does not block a tool reply when chat history sync fails', 
     const response = await new GeminiProvider().generate(request('gemini-tool-sync-fail-channel'));
 
     assert.equal(response.replyText, '2 + 2 = 4');
+  } finally {
+    ai.models.generateContent = originalGenerateContent;
+    ai.chats.create = originalChatsCreate;
+  }
+});
+
+test('GeminiProvider keeps full prompt context when native search grounding is used', async () => {
+  const originalGenerateContent = ai.models.generateContent;
+  const originalChatsCreate = ai.chats.create;
+  const sentMessages: unknown[] = [];
+
+  (ai.models as unknown as { generateContent: (params: unknown) => Promise<unknown> }).generateContent = async () => ({
+    text: 'Search grounding says the relevant update happened today.',
+  });
+
+  ai.chats.create = () => ({
+    sendMessage: async (params: unknown) => {
+      sentMessages.push(params);
+      return { text: 'final grounded answer' };
+    },
+  }) as never;
+
+  try {
+    const response = await new GeminiProvider().generate({
+      userId: 'search-user',
+      guildId: 'search-guild',
+      channelId: 'gemini-search-context-channel',
+      promptText: 'apa berita terbaru TypeScript?',
+      identityPrefix: '[INFO USER: panggil dia Aldi]\n\n',
+      finalPrompt: [
+        '[RECENT CONTEXT: user asked about TypeScript yesterday]',
+        '[MEMORY: user prefers concise answers]',
+        'CURRENT USER MESSAGE: apa berita terbaru TypeScript?',
+      ].join('\n'),
+      dynamicSystemInstruction: 'SYSTEM PERSONA: Hikari witty persona\nSUMMARY: prior discussion',
+      hasImage: false,
+      taskType: TaskType.SEARCH,
+    });
+
+    assert.equal(response.replyText, 'final grounded answer');
+    assert.equal(sentMessages.length, 1);
+    const message = (sentMessages[0] as { message?: string }).message ?? '';
+    assert.match(message, /RECENT CONTEXT/);
+    assert.match(message, /MEMORY: user prefers concise answers/);
+    assert.match(message, /CURRENT USER MESSAGE/);
+    assert.match(message, /Search grounding says/);
   } finally {
     ai.models.generateContent = originalGenerateContent;
     ai.chats.create = originalChatsCreate;

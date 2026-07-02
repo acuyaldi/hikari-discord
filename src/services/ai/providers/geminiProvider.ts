@@ -24,7 +24,6 @@ export class GeminiProvider implements AIProvider {
       channelId,
       dynamicSystemInstruction,
       promptText,
-      identityPrefix,
       finalPrompt,
       hasImage,
       imageUrl,
@@ -47,8 +46,9 @@ export class GeminiProvider implements AIProvider {
         config: { tools: [{ googleSearch: {} }] },
       });
       sendPrompt =
-        identityPrefix +
-        `[INFO INTERNET TERBARU: ${searchResponse.text}]\n\nBerdasarkan info di atas, jawab dengan kreatif: ${promptText}`;
+        `${finalPrompt}\n\n` +
+        `[INFO INTERNET TERBARU: ${searchResponse.text}]\n\n` +
+        'Gunakan info internet terbaru di atas sebagai konteks tambahan untuk menjawab pesan user terakhir.';
     }
 
     let messageContent: string | Array<string | { inlineData: { data: string; mimeType: string } }> =

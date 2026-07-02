@@ -5,6 +5,7 @@ import { splitMessage } from '../utils/splitmessage';
 import { baseSystemInstruction } from '../prompt/basePrompt';
 import { deepAnalysisInstruction } from '../prompt/deepPrompt';
 import { providerManager } from '../services/ai/providerManager';
+import { circuitBreaker } from '../services/ai/circuitBreaker';
 import { AIProviderName, TaskType } from '../services/ai/types';
 import { estimateContextTokens } from '../services/context/contextBuilder';
 import groq from '../ai/groq';
@@ -182,19 +183,30 @@ export async function execute(
 
     if (selectedMode === 'mendalam') {
       engineUsed = describeAnalyzeEngine('mendalam', AIProviderName.GROQ);
-      try {
-        console.log('[Analyze] using deep analysis mode with Groq GPT-OSS 120B');
-        const groqResponse = await groq.chat.completions.create({
-          messages: [
-            { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
-            { role: 'user', content: analysisPrompt },
-          ],
-          model: 'openai/gpt-oss-120b',
-          temperature: 0.5,
-        });
-        resultText = groqResponse.choices[0].message.content ?? '';
-      } catch {
-        console.log('[Analyze] Groq deep analysis failed, falling back to OpenRouter then Gemini');
+      let usedDeepPrimary = false;
+
+      if (circuitBreaker.isAvailable(AIProviderName.GROQ)) {
+        try {
+          console.log('[Analyze] using deep analysis mode with Groq GPT-OSS 120B');
+          const groqResponse = await groq.chat.completions.create({
+            messages: [
+              { role: 'system', content: `${dynamicSystemInstruction}\n\n${deepAnalysisInstruction}` },
+              { role: 'user', content: analysisPrompt },
+            ],
+            model: 'openai/gpt-oss-120b',
+            temperature: 0.5,
+          });
+          resultText = groqResponse.choices[0].message.content ?? '';
+          usedDeepPrimary = true;
+        } catch (error) {
+          circuitBreaker.recordFailure(AIProviderName.GROQ, error);
+          console.log('[Analyze] Groq deep analysis failed, falling back to OpenRouter then Gemini');
+        }
+      } else {
+        console.log('[Analyze] Groq deep analysis skipped because provider circuit is open');
+      }
+
+      if (!usedDeepPrimary) {
         const response = await providerManager.generate({
           userId,
           guildId: interaction.guildId,
