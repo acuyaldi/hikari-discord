@@ -9,7 +9,7 @@ import {
   SUSUNKATA_ROUND_TIMEOUT_SECONDS,
   SUSUNKATA_ROUND_TRANSITION_DELAY_MS,
 } from '../../../config/env';
-import { destroyRoom, getRoom, trackRoomMessage } from './roomManager';
+import { destroyRoom, finishRoom, getRoom, trackRoomMessage } from './roomManager';
 import { scrambleWord } from './scrambler';
 import { getValidatedWordBatch } from './wordGenerator';
 import type { WordEntry } from './wordValidator';
@@ -296,6 +296,7 @@ export async function runGame(
 
     const latestRoom = getRoom(channelId);
     if (!latestRoom) return;
+    finishRoom(channelId, latestRoom);
 
     for (const [userId, score] of latestRoom.scores.entries()) {
       if (score > 0) {
@@ -311,7 +312,7 @@ export async function runGame(
   } finally {
     const messageIds = [...room.sentMessageIds];
     activeAnswerHandlers.delete(channelId);
-    destroyRoom(channelId);
+    destroyRoom(channelId, room);
     scheduleMessageCleanup(client, channelId, messageIds, cleanupDelayMs);
   }
 }

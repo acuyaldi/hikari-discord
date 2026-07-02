@@ -123,9 +123,21 @@ export function startGame(channelId: string): SusunKataRoom {
   return room;
 }
 
-export function destroyRoom(channelId: string): void {
+export function finishRoom(channelId: string, expectedRoom?: SusunKataRoom): void {
   const room = rooms.get(channelId);
   if (!room) return;
+  if (expectedRoom && room !== expectedRoom) return;
+
+  clearExpiry(room);
+  room.phase = 'finished';
+  room.updatedAt = Date.now();
+}
+
+export function destroyRoom(channelId: string, expectedRoom?: SusunKataRoom): void {
+  const room = rooms.get(channelId);
+  if (!room) return;
+  if (expectedRoom && room !== expectedRoom) return;
+
   clearExpiry(room);
   room.phase = 'finished';
   rooms.delete(channelId);

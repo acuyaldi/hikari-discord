@@ -297,6 +297,59 @@ test('runGame sends one message per round, edits each round result, and sends a 
   db.close();
 });
 
+test('runGame frees the channel after the final round before slow finalization finishes', async () => {
+  resetSusunKataRoomsForTest();
+  const db = new Database(':memory:');
+  createTriviaScoresTable(db);
+  let podiumSendStarted = (): void => undefined;
+  let releasePodiumSend = (): void => undefined;
+  const podiumSendStartedPromise = new Promise<void>((resolve) => {
+    podiumSendStarted = resolve;
+  });
+  const releasePodiumSendPromise = new Promise<void>((resolve) => {
+    releasePodiumSend = resolve;
+  });
+  let sendCount = 0;
+  const client = {
+    channels: {
+      fetch: async () => ({
+        send: async () => {
+          sendCount += 1;
+          if (sendCount === 2) {
+            podiumSendStarted?.();
+            await releasePodiumSendPromise;
+          }
+          return {
+            id: `message-${sendCount}`,
+            edit: async () => undefined,
+          };
+        },
+      }),
+    },
+  };
+  createRoom('channel-1', 'creator-1', 1);
+  startGame('channel-1');
+
+  const game = runGame('channel-1', client as never, {
+    db,
+    getWords: async (): Promise<WordEntry[]> => [{ word: 'melati', clue: 'Bunga putih yang harum.' }],
+    roundTimeoutMs: 100,
+    transitionDelayMs: 0,
+  });
+
+  await waitForRoundHandler();
+  await handleSusunKataAnswerMessage(createAnswer('creator-1', 'melati') as never);
+  await podiumSendStartedPromise;
+
+  const replacement = createRoom('channel-1', 'creator-2', 1);
+
+  releasePodiumSend();
+  await game;
+
+  assert.equal(getRoom('channel-1'), replacement);
+  db.close();
+});
+
 test('runGame deletes tracked lobby, round, and podium messages after cleanup delay', async () => {
   resetSusunKataRoomsForTest();
   const db = new Database(':memory:');

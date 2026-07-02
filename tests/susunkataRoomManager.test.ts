@@ -77,6 +77,17 @@ test('destroyRoom frees the channel for another room', () => {
   assert.equal(getRoom('channel-1')?.creatorId, 'creator-2');
 });
 
+test('destroyRoom with an expected room does not delete a replacement room', () => {
+  resetSusunKataRoomsForTest();
+  const oldRoom = createRoom('channel-1', 'creator-1', 5);
+  oldRoom.phase = 'finished';
+  const replacement = createRoom('channel-1', 'creator-2', 3);
+
+  destroyRoom('channel-1', oldRoom);
+
+  assert.equal(getRoom('channel-1'), replacement);
+});
+
 test('waiting room auto-expires after inactivity', async () => {
   resetSusunKataRoomsForTest();
   createRoom('channel-1', 'creator-1', 5, { roomTimeoutMs: 10 });
