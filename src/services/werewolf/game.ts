@@ -1,6 +1,7 @@
 import {
   ChannelType,
   EmbedBuilder,
+  PermissionFlagsBits,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type Client,
@@ -135,6 +136,13 @@ async function setChannelNightLock(client: Client, game: WerewolfGameRow, locked
 
 function alivePlayers(players: WerewolfPlayerRow[]): WerewolfPlayerRow[] {
   return players.filter((player) => player.is_alive === 1);
+}
+
+function createForceResetEmbed(requesterId: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xed4245)
+    .setTitle('Werewolf Direset')
+    .setDescription(`Game Werewolf direset paksa oleh <@${requesterId}>. Server sudah bebas untuk game baru.`);
 }
 
 function mentionsForPlayers(players: WerewolfPlayerRow[]): string[] {
@@ -494,6 +502,38 @@ export async function cancelWerewolfGame(interaction: ChatInputCommandInteractio
   }
   await interaction.reply({ content: 'Game Werewolf dibatalkan. Dramanya disimpan untuk nanti.', ephemeral: true });
   await finishWerewolfGame(interaction.client, db, guildId, 'villagers');
+}
+
+export async function forceResetWerewolfGame(interaction: ChatInputCommandInteraction, db: Database.Database): Promise<void> {
+  const guildId = ensureGuild(interaction);
+  if (!guildId) {
+    await interaction.reply({ content: 'Command ini cuma jalan di server.', ephemeral: true });
+    return;
+  }
+  if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    await interaction.reply({
+      content: 'Butuh izin Manage Server untuk reset paksa game Werewolf.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const game = getWerewolfGame(db, guildId);
+  if (!game) {
+    await interaction.reply({ content: 'Tidak ada game Werewolf aktif di server ini.', ephemeral: true });
+    return;
+  }
+
+  await setChannelNightLock(interaction.client, game, false);
+  clearGuildTimers(guildId);
+  clearPendingLaunch(guildId);
+  clearRegistrationTimeout(guildId);
+  await updateMainGameMessage(interaction.client, db, guildId, {
+    embeds: [createForceResetEmbed(interaction.user.id)],
+    components: [],
+  });
+  deleteWerewolfGame(db, guildId);
+  await interaction.reply({ content: 'Game Werewolf direset paksa. Silakan mulai lagi dari nol.', ephemeral: true });
 }
 
 async function handleJoin(interaction: ButtonInteraction, db: Database.Database, guildId: string): Promise<void> {

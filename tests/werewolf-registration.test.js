@@ -7,6 +7,7 @@ const {
   startWerewolfRegistration,
   handleWerewolfComponentInteraction,
   forceWerewolfVoting,
+  forceResetWerewolfGame,
 } = require('../src/services/werewolf/game');
 const {
   buildWerewolfJoinId,
@@ -172,6 +173,7 @@ function createCommandInteraction(options) {
     guildId: options.guildId ?? 'guild-1',
     user: { id: options.userId ?? 'host-1' },
     client: options.client,
+    memberPermissions: options.memberPermissions,
     reply: jest.fn(async () => undefined),
   };
 }
@@ -969,6 +971,60 @@ describe('Werewolf registration integration (Start -> Join -> Launch)', () => {
         ([payload]) => payload?.embeds?.[0]?.data?.title?.includes('DAY'),
       ).length;
       expect(dayEditsAfter).toBe(1);
+    });
+  });
+
+  describe('Scenario K: Force reset', () => {
+    test('server manager can force reset a stuck active game even when they are not the host', async () => {
+      const { client, channel, mainMessage } = createMockClient();
+      await launchReadyGameWithFourPlayers(db, client);
+
+      const resetInteraction = createCommandInteraction({
+        client,
+        userId: 'server-manager',
+        memberPermissions: { has: jest.fn(() => true) },
+      });
+
+      await forceResetWerewolfGame(resetInteraction, db);
+
+      const gameCount = db.prepare('SELECT COUNT(*) AS count FROM ww_games WHERE guild_id = ?').get('guild-1').count;
+      const playerCount = db.prepare('SELECT COUNT(*) AS count FROM ww_players WHERE guild_id = ?').get('guild-1').count;
+      expect(gameCount).toBe(0);
+      expect(playerCount).toBe(0);
+      expect(channel.permissionOverwrites.edit).toHaveBeenCalledWith(
+        channel.guild.roles.everyone,
+        expect.objectContaining({ SendMessages: null }),
+      );
+      expect(mainMessage.edit).toHaveBeenCalledWith(
+        expect.objectContaining({ components: [] }),
+      );
+      expect(resetInteraction.reply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ephemeral: true,
+          content: expect.stringMatching(/direset paksa/i),
+        }),
+      );
+    });
+
+    test('force reset requires server management permission', async () => {
+      const { client } = createMockClient();
+      await startGameAndSeedHost(db, client);
+      const resetInteraction = createCommandInteraction({
+        client,
+        userId: 'random-user',
+        memberPermissions: { has: jest.fn(() => false) },
+      });
+
+      await forceResetWerewolfGame(resetInteraction, db);
+
+      const game = db.prepare('SELECT * FROM ww_games WHERE guild_id = ?').get('guild-1');
+      expect(game).toBeTruthy();
+      expect(resetInteraction.reply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ephemeral: true,
+          content: expect.stringMatching(/Manage Server/i),
+        }),
+      );
     });
   });
 });

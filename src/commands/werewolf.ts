@@ -1,7 +1,12 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { CommandContext } from '../types';
-import { cancelWerewolfGame, forceWerewolfVoting, startWerewolfRegistration } from '../services/werewolf/game';
+import {
+  cancelWerewolfGame,
+  forceResetWerewolfGame,
+  forceWerewolfVoting,
+  startWerewolfRegistration,
+} from '../services/werewolf/game';
 
 export const data = new SlashCommandBuilder()
   .setName('werewolf')
@@ -14,11 +19,16 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand((subcommand) =>
     subcommand.setName('stop').setDescription('Batalkan game Werewolf aktif'),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand.setName('reset').setDescription('Reset paksa game Werewolf aktif (Manage Server)'),
   );
 
-function getSubcommand(interaction: ChatInputCommandInteraction): 'start' | 'vote' | 'stop' {
+function getSubcommand(interaction: ChatInputCommandInteraction): 'start' | 'vote' | 'stop' | 'reset' {
   const subcommand = interaction.options.getSubcommand(true);
-  return subcommand === 'vote' || subcommand === 'stop' ? subcommand : 'start';
+  return subcommand === 'vote' || subcommand === 'stop' || subcommand === 'reset'
+    ? subcommand
+    : 'start';
 }
 
 export async function execute(
@@ -34,6 +44,11 @@ export async function execute(
 
   if (subcommand === 'stop') {
     await cancelWerewolfGame(interaction, db);
+    return;
+  }
+
+  if (subcommand === 'reset') {
+    await forceResetWerewolfGame(interaction, db);
     return;
   }
 
