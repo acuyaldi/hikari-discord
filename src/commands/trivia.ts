@@ -48,7 +48,7 @@ const DEFAULT_FALLBACK_QUESTION: TriviaQuestion = {
   jawaban_benar: 'D',
 };
 
-const TRIVIA_MODEL = 'gemini-1.5-flash';
+export const TRIVIA_MODEL = 'gemini-2.5-flash-lite';
 
 const TRIVIA_SYSTEM_INSTRUCTION = [
   'You are an elite quiz master engine for a popular Indonesian TV show like "Ranking 1" or "Who Wants to Be a Millionaire".',

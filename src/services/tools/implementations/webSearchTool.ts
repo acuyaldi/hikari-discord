@@ -157,6 +157,3 @@ export function createWebSearchTool(
     },
   };
 }
-
-export const webSearchTool = createWebSearchTool();
-
