@@ -43,6 +43,10 @@ test('validateWordEntry rejects words in the basic offensive blocklist', () => {
   assert.equal(validateWordEntry({ word: 'anjing', clue: 'Hewan peliharaan.' }).valid, false);
 });
 
+test('validateWordEntry rejects clues containing offensive blocklist words', () => {
+  assert.equal(validateWordEntry({ word: 'melati', clue: 'Clue bangsat.' }).valid, false);
+});
+
 test('validateWordBatch separates valid and rejected entries and rejects duplicate words', () => {
   const result = validateWordBatch([
     { word: 'melati', clue: 'Bunga putih yang harum.' },

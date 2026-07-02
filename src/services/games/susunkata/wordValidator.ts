@@ -59,6 +59,14 @@ export function validateWordEntry(entry: WordEntry): ValidationResult {
     return { valid: false, reason: 'clue_empty' };
   }
 
+  if (
+    BASIC_OFFENSIVE_WORD_BLOCKLIST.some((blockedWord) =>
+      clue.toLowerCase().includes(blockedWord),
+    )
+  ) {
+    return { valid: false, reason: 'clue_blocklisted' };
+  }
+
   if (clue.toLowerCase().includes(word)) {
     return { valid: false, reason: 'clue_contains_word' };
   }
